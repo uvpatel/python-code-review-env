@@ -263,6 +263,7 @@ def test_state_property_returns_state_object():
     assert isinstance(env.state, State)
 
 
+def test_update_config_changes_max_steps():
     env = PythonEnvironment()
     new_config = PythonEnvConfig(max_steps_per_task=7)
     env.update_config(new_config)

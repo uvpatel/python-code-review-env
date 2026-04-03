@@ -10,6 +10,9 @@ def test_health_endpoint():
     response = client.get("/health")
 
     assert response.status_code == 200
+    # OpenEnv's built-in /health route returns "healthy"; our custom route
+    # (which returns "ok") is shadowed because OpenEnv registers its route first.
+    # Both values are accepted to keep the test resilient to route-ordering.
     assert response.json()["status"] in ("ok", "healthy")
 
 

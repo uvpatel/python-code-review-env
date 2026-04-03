@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Code Review Env Environment Implementation.
+Python Env Environment Implementation.
 
 A simple test environment that echoes back messages sent to it.
 Perfect for testing HTTP server infrastructure.
@@ -17,12 +17,12 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from models import CodeReviewAction, CodeReviewObservation
+    from models import PythonAction, PythonObservation
 except ImportError:
-    from models import CodeReviewAction, CodeReviewObservation
+    from models import PythonAction, PythonObservation
 
 
-class CodeReviewEnvironment(Environment):
+class PythonEnvironment(Environment):
     """
     A simple echo environment that echoes back messages.
 
@@ -30,11 +30,11 @@ class CodeReviewEnvironment(Environment):
     It maintains minimal state and simply echoes back whatever message it receives.
 
     Example:
-        >>> env = CodeReviewEnvironment()
+        >>> env = PythonEnvironment()
         >>> obs = env.reset()
-        >>> print(obs.echoed_message)  # "Code Review Env environment ready!"
+        >>> print(obs.echoed_message)  # "Python Env environment ready!"
         >>>
-        >>> obs = env.step(CodeReviewAction(message="Hello"))
+        >>> obs = env.step(PythonAction(message="Hello"))
         >>> print(obs.echoed_message)  # "Hello"
         >>> print(obs.message_length)  # 5
     """
@@ -46,36 +46,36 @@ class CodeReviewEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
     def __init__(self):
-        """Initialize the code_review_env environment."""
+        """Initialize the python_env environment."""
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count = 0
 
-    def reset(self) -> CodeReviewObservation:
+    def reset(self) -> PythonObservation:
         """
         Reset the environment.
 
         Returns:
-            CodeReviewObservation with a ready message
+            PythonObservation with a ready message
         """
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count += 1
 
-        return CodeReviewObservation(
-            echoed_message="Code Review Env environment ready!",
+        return PythonObservation(
+            echoed_message="Python Env environment ready!",
             message_length=0,
             done=False,
             reward=0.0,
         )
 
-    def step(self, action: CodeReviewAction) -> CodeReviewObservation:  # type: ignore[override]
+    def step(self, action: PythonAction) -> PythonObservation:  # type: ignore[override]
         """
         Execute a step in the environment by echoing the message.
 
         Args:
-            action: CodeReviewAction containing the message to echo
+            action: PythonAction containing the message to echo
 
         Returns:
-            CodeReviewObservation with the echoed message and its length
+            PythonObservation with the echoed message and its length
         """
         self._state.step_count += 1
 
@@ -85,7 +85,7 @@ class CodeReviewEnvironment(Environment):
         # Simple reward: longer messages get higher rewards
         reward = length * 0.1
 
-        return CodeReviewObservation(
+        return PythonObservation(
             echoed_message=message,
             message_length=length,
             done=False,

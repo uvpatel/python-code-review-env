@@ -9,15 +9,25 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
+<<<<<<< HEAD
 name = "openenv-code_review_env"
 version = "0.1.0"
 description = "Code Review Env environment for OpenEnv"
+=======
+name = "openenv-python_env"
+version = "0.1.0"
+description = "Python Env environment for OpenEnv"
+>>>>>>> 293923c (setup the models)
 requires-python = ">=3.10"
 dependencies = [
     # Core OpenEnv runtime (provides FastAPI server + HTTP client types)
     # install from github
     # "openenv-core[core] @ git+https://github.com/meta-pytorch/OpenEnv.git",
+<<<<<<< HEAD
     "openenv-core[core]>=0.2.2",
+=======
+    "openenv-core[core]>=0.2.1",
+>>>>>>> 293923c (setup the models)
     # Environment-specific dependencies
     # Add all dependencies needed for your environment here
     # Examples:
@@ -36,6 +46,7 @@ dev = [
 
 [project.scripts]
 # Server entry point - enables running via: uv run --project . server
+<<<<<<< HEAD
 # or: python -m code_review_env.server.app
 server = "code_review_env.server.app:main"
 
@@ -43,3 +54,12 @@ server = "code_review_env.server.app:main"
 include-package-data = true
 packages = ["code_review_env", "code_review_env.server"]
 package-dir = { "code_review_env" = ".", "code_review_env.server" = "server" }
+=======
+# or: python -m python_env.server.app
+server = "python_env.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["python_env", "python_env.server"]
+package-dir = { "python_env" = ".", "python_env.server" = "server" }
+>>>>>>> 293923c (setup the models)

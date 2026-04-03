@@ -5,23 +5,69 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Data models for the Code Review Env Environment.
-
-The code_review_env environment is a simple test environment that echoes back messages.
+Data models for the code review environment.
 """
 
+from typing import List, Optional, Literal
+
+from pydantic import BaseModel, Field
 from openenv.core.env_server.types import Action, Observation
-from pydantic import Field
+
+
+Severity = Literal["critical", "warning", "info"]
+Category = Literal["bug", "security", "style", "performance"]
 
 
 class CodeReviewAction(Action):
-    """Action for the Code Review Env environment - just a message to echo."""
+    """Submit code for review."""
 
-    message: str = Field(..., description="Message to echo back")
+    code: str = Field(..., description="Source code to review")
+    language: str = Field(default="python", description="Programming language")
+    focus_areas: List[str] = Field(
+        default_factory=lambda: ["bugs", "style", "security", "performance"],
+        description="Areas to focus the review on",
+    )
+    context: Optional[str] = Field(
+        default=None, description="Optional context describing the code purpose"
+    )
+
+
+class ReviewIssue(BaseModel):
+    severity: Severity = Field(..., description="Severity of the issue")
+    category: Category = Field(..., description="Category of the code issue")
+    line: Optional[int] = Field(
+        default=None, description="Line number where the issue was identified"
+    )
+    message: str = Field(..., description="Human-readable issue description")
+    suggestion: Optional[str] = Field(
+        default=None, description="Optional suggestion to fix the issue"
+    )
+
+
+class CodeReviewConfig(BaseModel):
+    focus_areas: List[str] = Field(
+        default_factory=lambda: ["bugs", "style", "security", "performance"],
+        description="Areas the reviewer should prioritize",
+    )
+    model_name: str = Field(
+        default="placeholder-llm", description="Model used for the review"
+    )
 
 
 class CodeReviewObservation(Observation):
-    """Observation from the Code Review Env environment - the echoed message."""
+    """Review result from the environment."""
 
-    echoed_message: str = Field(default="", description="The echoed message")
-    message_length: int = Field(default=0, description="Length of the echoed message")
+    original_code: str = Field(default="", description="Code that was reviewed")
+    language: str = Field(default="python", description="Language of the submitted code")
+    issues: List[ReviewIssue] = Field(default_factory=list, description="Detected issues")
+    summary: str = Field(default="", description="Summary of the review")
+    score: float = Field(
+        default=0.0,
+        description="Quality score between 0 (worst) and 10 (best)",
+        ge=0.0,
+        le=10.0,
+    )
+    improved_code: Optional[str] = Field(
+        default=None, description="Optional suggested refactoring"
+    )
+    review_time_ms: float = Field(default=0.0, description="Time spent reviewing code")

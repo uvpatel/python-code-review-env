@@ -1564,6 +1564,7 @@ wheels = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "openenv-code-review-env"
 version = "0.1.0"
 source = { editable = "." }
@@ -1586,6 +1587,8 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+=======
+>>>>>>> 293923c (setup the models)
 name = "openenv-core"
 version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1621,6 +1624,31 @@ core = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "openenv-python-env"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "openenv-core", extra = ["core"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "openenv-core", extras = ["core"], specifier = ">=0.2.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+>>>>>>> 293923c (setup the models)
 name = "opentelemetry-api"
 version = "1.40.0"
 source = { registry = "https://pypi.org/simple" }

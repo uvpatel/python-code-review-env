@@ -1,8 +1,15 @@
 ---
+<<<<<<< HEAD
 title: Code Review Env Environment Server
 emoji: ⏲️
 colorFrom: indigo
 colorTo: yellow
+=======
+title: Python Env Environment Server
+emoji: 🎬
+colorFrom: gray
+colorTo: red
+>>>>>>> 293923c (setup the models)
 sdk: docker
 pinned: false
 app_port: 8000
@@ -11,12 +18,17 @@ tags:
   - openenv
 ---
 
+<<<<<<< HEAD
 # Code Review Env Environment
+=======
+# Python Env Environment
+>>>>>>> 293923c (setup the models)
 
 A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
 
 ## Quick Start
 
+<<<<<<< HEAD
 The simplest way to use the Code Review Env environment is through the `CodeReviewEnv` class:
 
 ```python
@@ -28,13 +40,30 @@ try:
 
     # Reset
     result = code_review_envenv.reset()
+=======
+The simplest way to use the Python Env environment is through the `PythonEnv` class:
+
+```python
+from python_env import PythonAction, PythonEnv
+
+try:
+    # Create environment from Docker image
+    python_envenv = PythonEnv.from_docker_image("python_env-env:latest")
+
+    # Reset
+    result = python_envenv.reset()
+>>>>>>> 293923c (setup the models)
     print(f"Reset: {result.observation.echoed_message}")
 
     # Send multiple messages
     messages = ["Hello, World!", "Testing echo", "Final message"]
 
     for msg in messages:
+<<<<<<< HEAD
         result = code_review_envenv.step(CodeReviewAction(message=msg))
+=======
+        result = python_envenv.step(PythonAction(message=msg))
+>>>>>>> 293923c (setup the models)
         print(f"Sent: '{msg}'")
         print(f"  → Echoed: '{result.observation.echoed_message}'")
         print(f"  → Length: {result.observation.message_length}")
@@ -42,10 +71,17 @@ try:
 
 finally:
     # Always clean up
+<<<<<<< HEAD
     code_review_envenv.close()
 ```
 
 That's it! The `CodeReviewEnv.from_docker_image()` method handles:
+=======
+    python_envenv.close()
+```
+
+That's it! The `PythonEnv.from_docker_image()` method handles:
+>>>>>>> 293923c (setup the models)
 - Starting the Docker container
 - Waiting for the server to be ready
 - Connecting to the environment
@@ -57,7 +93,11 @@ Before using the environment, you need to build the Docker image:
 
 ```bash
 # From project root
+<<<<<<< HEAD
 docker build -t code_review_env-env:latest -f server/Dockerfile .
+=======
+docker build -t python_env-env:latest -f server/Dockerfile .
+>>>>>>> 293923c (setup the models)
 ```
 
 ## Deploying to Hugging Face Spaces
@@ -119,11 +159,19 @@ The deployed space includes:
 ## Environment Details
 
 ### Action
+<<<<<<< HEAD
 **CodeReviewAction**: Contains a single field
 - `message` (str) - The message to echo back
 
 ### Observation
 **CodeReviewObservation**: Contains the echo response and metadata
+=======
+**PythonAction**: Contains a single field
+- `message` (str) - The message to echo back
+
+### Observation
+**PythonObservation**: Contains the echo response and metadata
+>>>>>>> 293923c (setup the models)
 - `echoed_message` (str) - The message echoed back
 - `message_length` (int) - Length of the message
 - `reward` (float) - Reward based on message length (length × 0.1)
@@ -140,6 +188,7 @@ The reward is calculated as: `message_length × 0.1`
 
 ### Connecting to an Existing Server
 
+<<<<<<< HEAD
 If you already have a Code Review Env environment server running, you can connect directly:
 
 ```python
@@ -154,21 +203,48 @@ result = code_review_envenv.step(CodeReviewAction(message="Hello!"))
 ```
 
 Note: When connecting to an existing server, `code_review_envenv.close()` will NOT stop the server.
+=======
+If you already have a Python Env environment server running, you can connect directly:
+
+```python
+from python_env import PythonEnv
+
+# Connect to existing server
+python_envenv = PythonEnv(base_url="<ENV_HTTP_URL_HERE>")
+
+# Use as normal
+result = python_envenv.reset()
+result = python_envenv.step(PythonAction(message="Hello!"))
+```
+
+Note: When connecting to an existing server, `python_envenv.close()` will NOT stop the server.
+>>>>>>> 293923c (setup the models)
 
 ### Using the Context Manager
 
 The client supports context manager usage for automatic connection management:
 
 ```python
+<<<<<<< HEAD
 from code_review_env import CodeReviewAction, CodeReviewEnv
 
 # Connect with context manager (auto-connects and closes)
 with CodeReviewEnv(base_url="http://localhost:8000") as env:
+=======
+from python_env import PythonAction, PythonEnv
+
+# Connect with context manager (auto-connects and closes)
+with PythonEnv(base_url="http://localhost:8000") as env:
+>>>>>>> 293923c (setup the models)
     result = env.reset()
     print(f"Reset: {result.observation.echoed_message}")
     # Multiple steps with low latency
     for msg in ["Hello", "World", "!"]:
+<<<<<<< HEAD
         result = env.step(CodeReviewAction(message=msg))
+=======
+        result = env.step(PythonAction(message=msg))
+>>>>>>> 293923c (setup the models)
         print(f"Echoed: {result.observation.echoed_message}")
 ```
 
@@ -185,9 +261,15 @@ modify `server/app.py` to use factory mode:
 ```python
 # In server/app.py - use factory mode for concurrent sessions
 app = create_app(
+<<<<<<< HEAD
     CodeReviewEnvironment,  # Pass class, not instance
     CodeReviewAction,
     CodeReviewObservation,
+=======
+    PythonEnvironment,  # Pass class, not instance
+    PythonAction,
+    PythonObservation,
+>>>>>>> 293923c (setup the models)
     max_concurrent_envs=4,  # Allow 4 concurrent sessions
 )
 ```
@@ -195,6 +277,7 @@ app = create_app(
 Then multiple clients can connect simultaneously:
 
 ```python
+<<<<<<< HEAD
 from code_review_env import CodeReviewAction, CodeReviewEnv
 from concurrent.futures import ThreadPoolExecutor
 
@@ -203,6 +286,16 @@ def run_episode(client_id: int):
         result = env.reset()
         for i in range(10):
             result = env.step(CodeReviewAction(message=f"Client {client_id}, step {i}"))
+=======
+from python_env import PythonAction, PythonEnv
+from concurrent.futures import ThreadPoolExecutor
+
+def run_episode(client_id: int):
+    with PythonEnv(base_url="http://localhost:8000") as env:
+        result = env.reset()
+        for i in range(10):
+            result = env.step(PythonAction(message=f"Client {client_id}, step {i}"))
+>>>>>>> 293923c (setup the models)
         return client_id, result.observation.message_length
 
 # Run 4 episodes concurrently
@@ -218,7 +311,11 @@ Test the environment logic directly without starting the HTTP server:
 
 ```bash
 # From the server directory
+<<<<<<< HEAD
 python3 server/code_review_env_environment.py
+=======
+python3 server/python_env_environment.py
+>>>>>>> 293923c (setup the models)
 ```
 
 This verifies that:
@@ -238,18 +335,30 @@ uvicorn server.app:app --reload
 ## Project Structure
 
 ```
+<<<<<<< HEAD
 code_review_env/
+=======
+python_env/
+>>>>>>> 293923c (setup the models)
 ├── .dockerignore         # Docker build exclusions
 ├── __init__.py            # Module exports
 ├── README.md              # This file
 ├── openenv.yaml           # OpenEnv manifest
 ├── pyproject.toml         # Project metadata and dependencies
 ├── uv.lock                # Locked dependencies (generated)
+<<<<<<< HEAD
 ├── client.py              # CodeReviewEnv client
 ├── models.py              # Action and Observation models
 └── server/
     ├── __init__.py        # Server module exports
     ├── code_review_env_environment.py  # Core environment logic
+=======
+├── client.py              # PythonEnv client
+├── models.py              # Action and Observation models
+└── server/
+    ├── __init__.py        # Server module exports
+    ├── python_env_environment.py  # Core environment logic
+>>>>>>> 293923c (setup the models)
     ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
     └── Dockerfile         # Container image definition
 ```

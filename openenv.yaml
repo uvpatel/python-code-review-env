@@ -1,5 +1,9 @@
 spec_version: 1
+<<<<<<< HEAD
 name: code_review_env
+=======
+name: python_env
+>>>>>>> 293923c (setup the models)
 type: space
 runtime: fastapi
 app: server.app:app

@@ -30,3 +30,4 @@ package-dir = { "python_env" = ".", "python_env.server" = "server" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,15 +1,8 @@
 ---
-<<<<<<< HEAD
-title: Code Review Env Environment Server
-emoji: ⏲️
-colorFrom: indigo
-colorTo: yellow
-=======
 title: Python Env Environment Server
-emoji: 🎬
-colorFrom: gray
-colorTo: red
->>>>>>> 293923c (setup the models)
+emoji: 🐍
+colorFrom: blue
+colorTo: green
 sdk: docker
 pinned: false
 app_port: 8000
@@ -18,347 +11,115 @@ tags:
   - openenv
 ---
 
-<<<<<<< HEAD
-# Code Review Env Environment
-=======
-# Python Env Environment
->>>>>>> 293923c (setup the models)
+# Python Env
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+`python_env` is an OpenEnv benchmark for Python code review. The agent receives a realistic Python snippet and must identify correctness bugs, security flaws, operational risks, and obvious performance problems.
 
-## Quick Start
+The environment includes three deterministic tasks with rubric-based graders:
 
-<<<<<<< HEAD
-The simplest way to use the Code Review Env environment is through the `CodeReviewEnv` class:
+1. `py-review-easy`
+2. `py-review-medium`
+3. `py-review-hard`
 
-```python
-from code_review_env import CodeReviewAction, CodeReviewEnv
+Each grader returns a score in the `0.0-1.0` range. The server also exposes a direct static-review API for arbitrary Python snippets.
 
-try:
-    # Create environment from Docker image
-    code_review_envenv = CodeReviewEnv.from_docker_image("code_review_env-env:latest")
+## Action Space
 
-    # Reset
-    result = code_review_envenv.reset()
-=======
-The simplest way to use the Python Env environment is through the `PythonEnv` class:
+`PythonReviewAction`
 
-```python
-from python_env import PythonAction, PythonEnv
+- `operation`: `submit_findings`, `request_hint`, or `finalize`
+- `findings`: list of structured `ReviewFinding` objects
+- `patched_code`: optional improved code
+- `note`: optional reviewer note
 
-try:
-    # Create environment from Docker image
-    python_envenv = PythonEnv.from_docker_image("python_env-env:latest")
+## Observation Space
 
-    # Reset
-    result = python_envenv.reset()
->>>>>>> 293923c (setup the models)
-    print(f"Reset: {result.observation.echoed_message}")
+`PythonReviewObservation`
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+- `task`
+- `instructions`
+- `feedback`
+- `submitted_findings`
+- `hints_used`
+- `attempts_remaining`
+- `evaluation`
+- `score`
+- `reward`
+- `done`
+- `metadata`
 
-    for msg in messages:
-<<<<<<< HEAD
-        result = code_review_envenv.step(CodeReviewAction(message=msg))
-=======
-        result = python_envenv.step(PythonAction(message=msg))
->>>>>>> 293923c (setup the models)
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+## Reward Design
 
-finally:
-    # Always clean up
-<<<<<<< HEAD
-    code_review_envenv.close()
-```
+Rewards provide signal throughout the episode:
 
-That's it! The `CodeReviewEnv.from_docker_image()` method handles:
-=======
-    python_envenv.close()
-```
+- positive reward for newly matched rubric findings
+- negative reward for false positives
+- negative reward for duplicate findings
+- negative reward for hint usage
+- small bonus for improved patches
+- final bonus for passing the task threshold
 
-That's it! The `PythonEnv.from_docker_image()` method handles:
->>>>>>> 293923c (setup the models)
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+## API
 
-## Building the Docker Image
+OpenEnv-compatible:
 
-Before using the environment, you need to build the Docker image:
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+- `GET /schema`
+- `WS /ws`
+
+Additional REST endpoints:
+
+- `GET /health`
+- `GET /tasks`
+- `GET /tasks/{task_id}`
+- `POST /tasks/{task_id}/grade`
+- `POST /review`
+- `GET /history`
+- `DELETE /history`
+- `GET /config`
+- `PUT /config`
+
+## Local Run
 
 ```bash
-# From project root
-<<<<<<< HEAD
-docker build -t code_review_env-env:latest -f server/Dockerfile .
-=======
+uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+## Docker
+
+```bash
 docker build -t python_env-env:latest -f server/Dockerfile .
->>>>>>> 293923c (setup the models)
+docker run -p 8000:8000 python_env-env:latest
 ```
 
-## Deploying to Hugging Face Spaces
+## Baseline Inference
 
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+The root-level `inference.py` script runs an OpenAI-compatible model against all three tasks and prints per-task scores plus the mean score.
+
+Required environment variables:
+
+- `API_BASE_URL`
+- `MODEL_NAME`
+- `HF_TOKEN` or `OPENAI_API_KEY`
+
+Optional:
+
+- `ENV_BASE_URL`
+- `PYTHON_ENV_IMAGE`
+
+## Validation
 
 ```bash
-# From the environment directory (where openenv.yaml is located)
+docker build -f server/Dockerfile .
+openenv validate
+pytest
+python inference.py
+```
+
+## Hugging Face Spaces
+
+```bash
 openenv push
-
-# Or specify options
-openenv push --namespace my-org --private
-```
-
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
-
-### Prerequisites
-
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
-
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
-```
-
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
-
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-<<<<<<< HEAD
-**CodeReviewAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**CodeReviewObservation**: Contains the echo response and metadata
-=======
-**PythonAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**PythonObservation**: Contains the echo response and metadata
->>>>>>> 293923c (setup the models)
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-<<<<<<< HEAD
-If you already have a Code Review Env environment server running, you can connect directly:
-
-```python
-from code_review_env import CodeReviewEnv
-
-# Connect to existing server
-code_review_envenv = CodeReviewEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = code_review_envenv.reset()
-result = code_review_envenv.step(CodeReviewAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `code_review_envenv.close()` will NOT stop the server.
-=======
-If you already have a Python Env environment server running, you can connect directly:
-
-```python
-from python_env import PythonEnv
-
-# Connect to existing server
-python_envenv = PythonEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = python_envenv.reset()
-result = python_envenv.step(PythonAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `python_envenv.close()` will NOT stop the server.
->>>>>>> 293923c (setup the models)
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-<<<<<<< HEAD
-from code_review_env import CodeReviewAction, CodeReviewEnv
-
-# Connect with context manager (auto-connects and closes)
-with CodeReviewEnv(base_url="http://localhost:8000") as env:
-=======
-from python_env import PythonAction, PythonEnv
-
-# Connect with context manager (auto-connects and closes)
-with PythonEnv(base_url="http://localhost:8000") as env:
->>>>>>> 293923c (setup the models)
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-<<<<<<< HEAD
-        result = env.step(CodeReviewAction(message=msg))
-=======
-        result = env.step(PythonAction(message=msg))
->>>>>>> 293923c (setup the models)
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-<<<<<<< HEAD
-    CodeReviewEnvironment,  # Pass class, not instance
-    CodeReviewAction,
-    CodeReviewObservation,
-=======
-    PythonEnvironment,  # Pass class, not instance
-    PythonAction,
-    PythonObservation,
->>>>>>> 293923c (setup the models)
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-<<<<<<< HEAD
-from code_review_env import CodeReviewAction, CodeReviewEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with CodeReviewEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(CodeReviewAction(message=f"Client {client_id}, step {i}"))
-=======
-from python_env import PythonAction, PythonEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with PythonEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(PythonAction(message=f"Client {client_id}, step {i}"))
->>>>>>> 293923c (setup the models)
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-<<<<<<< HEAD
-python3 server/code_review_env_environment.py
-=======
-python3 server/python_env_environment.py
->>>>>>> 293923c (setup the models)
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
-
-## Project Structure
-
-```
-<<<<<<< HEAD
-code_review_env/
-=======
-python_env/
->>>>>>> 293923c (setup the models)
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-<<<<<<< HEAD
-├── client.py              # CodeReviewEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── code_review_env_environment.py  # Core environment logic
-=======
-├── client.py              # PythonEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── python_env_environment.py  # Core environment logic
->>>>>>> 293923c (setup the models)
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
 ```

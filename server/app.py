@@ -1,167 +1,128 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
+"""FastAPI app for the Python code-review environment."""
 
-"""
-FastAPI application for the Code Review Environment.
+from __future__ import annotations
 
-This module creates an HTTP server that exposes the CodeReviewEnvironment
-over HTTP and WebSocket endpoints, compatible with EnvClient.
-
-Endpoints:
-    - POST /reset: Reset the environment
-    - POST /step: Execute a code review action
-    - GET /state: Get current environment state
-    - GET /schema: Get action/observation schemas
-    - WS /ws: WebSocket endpoint for persistent sessions
-    - POST /review/history: Submit code for review
-    - GET /review/history: List previous reviews
-    - DELETE /review/history: Clear review history
-    - GET /review/config: Get reviewer configuration
-    - PUT /review/config: Update reviewer configuration
-
-Usage:
-    # Development (with auto-reload):
-    uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
-
-    # Production:
-    uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 4
-
-    # Or run directly:
-    python -m server.app
-"""
-
-from datetime import datetime
-from typing import Dict, List, Optional
-from uuid import uuid4
+from fastapi import APIRouter, HTTPException
 
 try:
     from openenv.core.env_server.http_server import create_app
-except Exception as e:  # pragma: no cover
+except Exception as exc:  # pragma: no cover
     raise ImportError(
-        "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
-    ) from e
+        "openenv is required for the server. Install project dependencies before running."
+    ) from exc
 
 try:
     from models import (
-        CodeReviewAction,
-        CodeReviewConfig,
-        CodeReviewObservation,
+        DeleteResponse,
+        DirectReviewRequest,
+        DirectReviewResponse,
+        EpisodeRecord,
+        HealthResponse,
+        PythonEnvConfig,
+        PythonReviewAction,
+        PythonReviewObservation,
+        TaskDescriptor,
+        TaskEvaluation,
     )
-    from code_review_environment import CodeReviewEnvironment
-except ModuleNotFoundError:
-    from models import (
-        CodeReviewAction,
-        CodeReviewConfig,
-        CodeReviewObservation,
+    from server.code_review_environment import PythonEnvironment
+except ModuleNotFoundError:  # pragma: no cover
+    from ..models import (
+        DeleteResponse,
+        DirectReviewRequest,
+        DirectReviewResponse,
+        EpisodeRecord,
+        HealthResponse,
+        PythonEnvConfig,
+        PythonReviewAction,
+        PythonReviewObservation,
+        TaskDescriptor,
+        TaskEvaluation,
     )
-    from code_review_environment import CodeReviewEnvironment
+    from .code_review_environment import PythonEnvironment
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-
-
-class ReviewJob(BaseModel):
-    """Stores a single code review job result."""
-
-    job_id: str
-    status: str = Field(default="completed")
-    action: CodeReviewAction
-    observation: CodeReviewObservation
-    reward: float
-    submitted_at: str
-    completed_at: str
-    logs: List[str] = Field(default_factory=list)
+# OpenEnv's server in your installed version expects an environment class/factory,
+# not a pre-instantiated environment object.
+python_env = PythonEnvironment()
+app = create_app(PythonEnvironment, PythonReviewAction, PythonReviewObservation)
+router = APIRouter(tags=["python-env"])
 
 
-review_env = CodeReviewEnvironment()
-REVIEW_STORE: Dict[str, ReviewJob] = {}
-review_router = APIRouter(prefix="/review", tags=["review"])
-
-
-@review_router.post("/history", response_model=ReviewJob)
-def submit_review(action: CodeReviewAction):
-    """Submit code for review and store the result."""
-    observation = review_env.step(action)
-    job_id = str(uuid4())
-    now = datetime.utcnow().isoformat()
-    job = ReviewJob(
-        job_id=job_id,
-        action=action,
-        observation=observation,
-        reward=observation.reward or 0.0,
-        submitted_at=now,
-        completed_at=now,
-        logs=[observation.summary],
+@router.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    tasks = python_env.list_tasks()
+    active_episode_id = None
+    active_task_id = tasks[0].task_id if tasks else None
+    if python_env.get_history():
+        active = python_env.get_history()[-1]
+        active_episode_id = active.episode_id
+        active_task_id = active.task_id
+    return HealthResponse(
+        task_count=len(tasks),
+        active_task_id=active_task_id,
+        active_episode_id=active_episode_id,
     )
-    REVIEW_STORE[job_id] = job
-    return job
 
 
-@review_router.get("/history", response_model=List[ReviewJob])
-def list_history(min_issues: Optional[int] = None):
-    """List all review jobs, optionally filtered by minimum issue count."""
-    entries = list(REVIEW_STORE.values())
-    if min_issues is not None:
-        entries = [job for job in entries if len(job.observation.issues) >= min_issues]
-    return entries
+@router.get("/tasks", response_model=list[TaskDescriptor])
+def list_tasks() -> list[TaskDescriptor]:
+    return python_env.list_tasks()
 
 
-@review_router.delete("/history")
-def clear_history():
-    """Clear all review history."""
-    REVIEW_STORE.clear()
-    review_env.clear_history()
-    return JSONResponse({"detail": "history cleared"})
+@router.get("/tasks/{task_id}", response_model=TaskDescriptor)
+def get_task(task_id: str) -> TaskDescriptor:
+    try:
+        return python_env.get_task(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@review_router.put("/config", response_model=CodeReviewConfig)
-def update_config(config: CodeReviewConfig):
-    """Update the code reviewer configuration."""
-    review_env.update_config(config)
-    return review_env.config
+@router.post("/tasks/{task_id}/grade", response_model=TaskEvaluation)
+def grade_task(task_id: str, payload: PythonReviewAction) -> TaskEvaluation:
+    try:
+        return python_env.grade_task_submission(
+            task_id=task_id,
+            findings=payload.findings,
+            patched_code=payload.patched_code,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@review_router.get("/config", response_model=CodeReviewConfig)
-def get_config():
-    """Get the current code reviewer configuration."""
-    return review_env.config
+@router.post("/review", response_model=DirectReviewResponse)
+def direct_review(request: DirectReviewRequest) -> DirectReviewResponse:
+    return python_env.direct_review(code=request.code, context=request.context)
 
 
-# Create the OpenEnv app with code review environment
-app = create_app(review_env)
-app.include_router(review_router)
+@router.get("/history", response_model=list[EpisodeRecord])
+def get_history() -> list[EpisodeRecord]:
+    return python_env.get_history()
 
 
-def main(host: str = "0.0.0.0", port: int = 8000):
-    """
-    Entry point for direct execution via uv run or python -m.
+@router.delete("/history", response_model=DeleteResponse)
+def clear_history() -> DeleteResponse:
+    python_env.clear_history()
+    return DeleteResponse(detail="history cleared")
 
-    This function enables running the server without Docker:
-        uv run --project . server
-        uv run --project . server --port 8001
-        python -m python_env.server.app
 
-    Args:
-        host: Host address to bind to (default: "0.0.0.0")
-        port: Port number to listen on (default: 8000)
+@router.get("/config", response_model=PythonEnvConfig)
+def get_config() -> PythonEnvConfig:
+    return python_env.config
 
-    For production deployments, consider using uvicorn directly with
-    multiple workers:
-        uvicorn python_env.server.app:app --workers 4
-    """
+
+@router.put("/config", response_model=PythonEnvConfig)
+def update_config(config: PythonEnvConfig) -> PythonEnvConfig:
+    python_env.update_config(config)
+    return python_env.config
+
+
+app.include_router(router)
+
+
+def main(host: str = "localhost", port: int = 8000) -> None:
     import uvicorn
 
     uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
-    main(port=args.port)
+    main()

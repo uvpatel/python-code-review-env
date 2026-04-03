@@ -1,20 +1,35 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
+"""Public package API for the Python code-review environment."""
 
-"""Code review environment."""
-
-from .client import CodeReviewEnv, PythonEnv, MyEnv
-from .models import CodeReviewAction, CodeReviewObservation, ReviewIssue, CodeReviewConfig
+from .client import CodeReviewEnv, MyEnv, PythonEnv
+from .models import (
+    CodeReviewAction,
+    CodeReviewConfig,
+    CodeReviewObservation,
+    DirectReviewRequest,
+    DirectReviewResponse,
+    EpisodeRecord,
+    PythonEnvConfig,
+    PythonReviewAction,
+    PythonReviewObservation,
+    ReviewFinding,
+    TaskDescriptor,
+    TaskEvaluation,
+)
 
 __all__ = [
+    "PythonEnv",
+    "CodeReviewEnv",
+    "MyEnv",
+    "PythonReviewAction",
+    "PythonReviewObservation",
+    "PythonEnvConfig",
+    "ReviewFinding",
+    "TaskDescriptor",
+    "TaskEvaluation",
+    "EpisodeRecord",
+    "DirectReviewRequest",
+    "DirectReviewResponse",
     "CodeReviewAction",
     "CodeReviewObservation",
     "CodeReviewConfig",
-    "ReviewIssue",
-    "CodeReviewEnv",
-    "PythonEnv",  # Backward compatibility alias
-    "MyEnv",      # User-friendly alias
 ]

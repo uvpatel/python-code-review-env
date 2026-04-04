@@ -1,4 +1,4 @@
-"""Server exports for the Python code-review environment."""
+"""Server exports for the Python PR review environment."""
 
 from .code_review_environment import CodeReviewEnvironment, PythonEnvironment
 

@@ -1,6 +1,10 @@
 spec_version: 1
-name: python_env
+name: python_pr_review_env
 type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+metadata:
+  description: Deterministic Python pull-request review benchmark for OpenEnv
+  domain: code-review
+  task_count: 3

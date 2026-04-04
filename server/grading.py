@@ -1,278 +1,147 @@
-"""Deterministic graders for benchmark tasks.
-
-This module turns free-form review findings into reproducible numeric scores.
-The logic is intentionally transparent so benchmark behavior can be inspected
-and adjusted without relying on opaque model-based judging.
-"""
+"""Deterministic grading helpers for PR-review tasks."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Set
+from typing import Iterable, List, Optional, Sequence, Set
 
 try:
-    from models import ReviewFinding, TaskEvaluation
-    from server.static_review import analyze_python_code
-    from server.task_bank import ReferenceFinding, TaskSpec
+    from models import ReviewFinding, TaskGrade
+    from server.task_bank import RubricIssue, TaskSpec
 except ModuleNotFoundError:  # pragma: no cover
-    from ..models import ReviewFinding, TaskEvaluation
-    from .static_review import analyze_python_code
-    from .task_bank import ReferenceFinding, TaskSpec
+    from ..models import ReviewFinding, TaskGrade
+    from .task_bank import RubricIssue, TaskSpec
 
 
-# Stopwords are removed before phrase-overlap comparisons so scoring focuses on
-# the meaningful technical parts of a finding rather than on filler words.
-STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "be",
-    "can",
-    "for",
-    "from",
-    "in",
-    "is",
-    "of",
-    "on",
-    "or",
-    "the",
-    "to",
-    "with",
-}
+FALSE_POSITIVE_PENALTY = 0.10
+DUPLICATE_PENALTY = 0.05
 
 
-@dataclass
-class SubmissionGrade:
-    """Full grading result for one submission attempt.
+@dataclass(frozen=True)
+class FindingMatch:
+    """Result of matching one finding against the rubric."""
 
-    The environment uses `evaluation` for the visible score while the
-    additional fields support incremental reward shaping.
-    """
-
-    evaluation: TaskEvaluation
-    newly_matched_ids: List[str]
-    accepted_fingerprints: Set[str]
-    false_positives: int
-    duplicate_findings: int
-    patch_score: float
+    issue_id: Optional[str]
+    duplicate: bool = False
 
 
-def evaluate_submission(
-    task: TaskSpec,
-    findings: Sequence[ReviewFinding],
-    patched_code: Optional[str] = None,
-    prior_matched_ids: Optional[Set[str]] = None,
-    prior_fingerprints: Optional[Set[str]] = None,
-    force_patch_score: Optional[float] = None,
-    use_existing_matches: bool = False,
-    false_positives: int = 0,
-    duplicate_findings: int = 0,
-) -> SubmissionGrade:
-    """Grade one batch of findings against a task rubric.
+def finding_fingerprint(finding: ReviewFinding) -> str:
+    """Build a deterministic fingerprint for duplicate detection."""
 
-    Args:
-        task: Benchmark task and hidden reference findings.
-        findings: Agent-submitted findings for this step.
-        patched_code: Optional code patch to score separately.
-        prior_matched_ids: Reference ids already matched in earlier steps.
-        prior_fingerprints: Finding fingerprints already seen in earlier steps.
-        force_patch_score: Optional override for patch score replay.
-        use_existing_matches: Skip new matching and recompute only from stored state.
-        false_positives: Existing false-positive count carried across steps.
-        duplicate_findings: Existing duplicate count carried across steps.
-    """
-
-    matched_ids: Set[str] = set(prior_matched_ids or [])
-    accepted_fingerprints: Set[str] = set()
-    seen_fingerprints: Set[str] = set(prior_fingerprints or set())
-    new_matches: List[str] = []
-    current_false_positives = false_positives
-    current_duplicates = duplicate_findings
-
-    if not use_existing_matches:
-        for finding in findings:
-            # Fingerprints are used to penalize repeated submissions of the
-            # same finding within one episode.
-            fingerprint = _fingerprint(finding)
-            if fingerprint in seen_fingerprints:
-                current_duplicates += 1
-                continue
-            seen_fingerprints.add(fingerprint)
-            accepted_fingerprints.add(fingerprint)
-            reference = _match_finding(finding, task.reference_findings, matched_ids)
-            if reference is None:
-                current_false_positives += 1
-                continue
-            matched_ids.add(reference.finding_id)
-            new_matches.append(reference.finding_id)
-
-    # Patch scoring is optional because not every agent will propose an edit.
-    patch_score = (
-        force_patch_score
-        if force_patch_score is not None
-        else _grade_patch_score(task, patched_code)
-    )
-    evaluation = _build_evaluation(
-        task=task,
-        matched_ids=matched_ids,
-        false_positives=current_false_positives,
-        duplicate_findings=current_duplicates,
-        patch_score=patch_score,
-    )
-    return SubmissionGrade(
-        evaluation=evaluation,
-        newly_matched_ids=new_matches,
-        accepted_fingerprints=accepted_fingerprints,
-        false_positives=current_false_positives - false_positives,
-        duplicate_findings=current_duplicates - duplicate_findings,
-        patch_score=patch_score,
-    )
-
-
-def _build_evaluation(
-    task: TaskSpec,
-    matched_ids: Set[str],
-    false_positives: int,
-    duplicate_findings: int,
-    patch_score: float,
-) -> TaskEvaluation:
-    """Convert intermediate grading state into the public evaluation payload."""
-
-    total_weight = sum(reference.weight for reference in task.reference_findings) or 1.0
-    matched_weight = sum(
-        reference.weight
-        for reference in task.reference_findings
-        if reference.finding_id in matched_ids
-    )
-    weighted_recall = max(0.0, min(1.0, matched_weight / total_weight))
-    # False positives and duplicates lower the final score even when recall is
-    # strong, which encourages precision rather than keyword spam.
-    penalty = min(0.35, false_positives * 0.08 + duplicate_findings * 0.03)
-    score = max(0.0, min(1.0, weighted_recall - penalty))
-    return TaskEvaluation(
-        matched_reference_ids=sorted(matched_ids),
-        matched_findings=len(matched_ids),
-        total_findings=len(task.reference_findings),
-        false_positives=false_positives,
-        duplicate_findings=duplicate_findings,
-        weighted_recall=weighted_recall,
-        patch_score=patch_score,
-        score=score,
-        passed=score >= task.success_threshold,
-    )
-
-
-def _match_finding(
-    finding: ReviewFinding,
-    references: Sequence[ReferenceFinding],
-    matched_ids: Set[str],
-) -> Optional[ReferenceFinding]:
-    """Return the best rubric match for a submitted finding, if any."""
-
-    best_reference: Optional[ReferenceFinding] = None
-    best_score = 0.0
-    for reference in references:
-        if reference.finding_id in matched_ids:
-            continue
-        score = _reference_similarity(finding, reference)
-        if score > best_score:
-            best_score = score
-            best_reference = reference
-    if best_score >= 0.55:
-        return best_reference
-    return None
-
-
-def _reference_similarity(finding: ReviewFinding, reference: ReferenceFinding) -> float:
-    """Compute a similarity score between a submission and one rubric item."""
-
-    score = 0.0
-    if finding.category == reference.category:
-        score += 0.3
-    if finding.severity == reference.severity:
-        score += 0.15
-    if finding.line is not None and abs(finding.line - reference.line) <= 1:
-        score += 0.25
-    text_tokens = _tokens(
-        " ".join(
-            part
-            for part in (
-                finding.title,
-                finding.rationale,
-                finding.recommendation or "",
-                finding.rule_id or "",
-            )
-            if part
-        )
-    )
-    # Phrase overlap lets the grader accept semantically similar titles and
-    # rationales without requiring exact string equality.
-    reference_phrases = [reference.title, reference.rule_id, *reference.aliases]
-    best_phrase_overlap = max(_phrase_overlap(text_tokens, phrase) for phrase in reference_phrases)
-    score += best_phrase_overlap * 0.35
-    return min(score, 1.0)
-
-
-def _grade_patch_score(task: TaskSpec, patched_code: Optional[str]) -> float:
-    """Estimate patch quality by checking whether detectable issues were removed."""
-
-    if not patched_code:
-        return 0.0
-    issues = analyze_python_code(patched_code)
-    remaining_rule_ids = {issue.rule_id for issue in issues if issue.rule_id}
-    detectable_rule_ids = {
-        reference.rule_id
-        for reference in task.reference_findings
-        if reference.rule_id
-        and reference.rule_id
-        in {
-            "avoid-eval",
-            "mutable-default-list",
-            "quadratic-membership-check",
-            "bare-except",
-            "shell-true-command-injection",
-        }
-    }
-    if not detectable_rule_ids:
-        return 0.0
-    fixed = len(detectable_rule_ids - remaining_rule_ids)
-    return max(0.0, min(1.0, fixed / len(detectable_rule_ids)))
-
-
-def _phrase_overlap(tokens: Set[str], phrase: str) -> float:
-    """Measure token overlap between a finding and one reference phrase."""
-
-    phrase_tokens = _tokens(phrase)
-    if not phrase_tokens:
-        return 0.0
-    overlap = len(tokens & phrase_tokens)
-    if phrase_tokens.issubset(tokens):
-        return 1.0
-    return overlap / len(phrase_tokens)
-
-
-def _tokens(text: str) -> Set[str]:
-    """Normalize free text into lowercase comparison tokens."""
-
-    return {
-        token
-        for token in re.findall(r"[a-z0-9_]+", text.lower())
-        if token not in STOPWORDS
-    }
-
-
-def _fingerprint(finding: ReviewFinding) -> str:
-    """Build a stable fingerprint for duplicate-detection within one episode."""
-
-    tokens = sorted(_tokens(f"{finding.title} {finding.rationale} {finding.recommendation or ''}"))
-    return "|".join(
+    text = " ".join(
         [
+            finding.file_path,
+            str(finding.line or 0),
             finding.category,
             finding.severity,
-            str(finding.line or 0),
-            finding.rule_id or "",
-            " ".join(tokens),
+            finding.title,
+            finding.explanation,
+            finding.suggested_fix,
         ]
     )
+    return "|".join(sorted(tokens(text)))
+
+
+def match_finding(
+    finding: ReviewFinding,
+    task: TaskSpec,
+    matched_issue_ids: Set[str],
+    seen_fingerprints: Set[str],
+) -> FindingMatch:
+    """Match one finding against the remaining rubric issues."""
+
+    fingerprint = finding_fingerprint(finding)
+    if fingerprint in seen_fingerprints:
+        return FindingMatch(issue_id=None, duplicate=True)
+
+    for issue in task.rubric_issues:
+        if issue.issue_id in matched_issue_ids:
+            continue
+        if finding_matches_issue(finding, issue):
+            return FindingMatch(issue_id=issue.issue_id)
+    return FindingMatch(issue_id=None)
+
+
+def finding_matches_issue(finding: ReviewFinding, issue: RubricIssue) -> bool:
+    """Return True when a finding deterministically matches a rubric issue."""
+
+    if finding.file_path != issue.file_path:
+        return False
+    if finding.category != issue.category:
+        return False
+    if finding.severity != issue.severity:
+        return False
+    if finding.line is None or abs(finding.line - issue.line) > 2:
+        return False
+
+    finding_tokens = tokens(
+        " ".join([finding.title, finding.explanation, finding.suggested_fix])
+    )
+    keyword_hits = sum(1 for keyword in issue.keywords if keyword in finding_tokens)
+    return keyword_hits >= issue.min_keyword_hits
+
+
+def score_task(
+    task: TaskSpec,
+    matched_issue_ids: Iterable[str],
+    false_positives: int = 0,
+    duplicate_findings: int = 0,
+) -> TaskGrade:
+    """Score a task from cumulative episode state."""
+
+    matched_set = set(matched_issue_ids)
+    matched_weight = sum(
+        issue.weight for issue in task.rubric_issues if issue.issue_id in matched_set
+    )
+    raw_score = matched_weight
+    raw_score -= false_positives * FALSE_POSITIVE_PENALTY
+    raw_score -= duplicate_findings * DUPLICATE_PENALTY
+    score = max(0.0, min(1.0, round(raw_score, 6)))
+    return TaskGrade(
+        score=score,
+        matched_issue_ids=sorted(matched_set),
+        false_positives=false_positives,
+        duplicate_findings=duplicate_findings,
+        matched_weight=min(1.0, round(matched_weight, 6)),
+    )
+
+
+def grade_findings(task: TaskSpec, findings: Sequence[ReviewFinding]) -> TaskGrade:
+    """Offline-grade a batch of findings for one task."""
+
+    matched_issue_ids: Set[str] = set()
+    seen_fingerprints: Set[str] = set()
+    false_positives = 0
+    duplicate_findings = 0
+
+    for finding in findings:
+        result = match_finding(
+            finding=finding,
+            task=task,
+            matched_issue_ids=matched_issue_ids,
+            seen_fingerprints=seen_fingerprints,
+        )
+        fingerprint = finding_fingerprint(finding)
+        if result.duplicate:
+            duplicate_findings += 1
+            continue
+        seen_fingerprints.add(fingerprint)
+        if result.issue_id is None:
+            false_positives += 1
+            continue
+        matched_issue_ids.add(result.issue_id)
+
+    return score_task(
+        task=task,
+        matched_issue_ids=matched_issue_ids,
+        false_positives=false_positives,
+        duplicate_findings=duplicate_findings,
+    )
+
+
+def tokens(text: str) -> Set[str]:
+    """Normalize free text into deterministic comparison tokens."""
+
+    return set(re.findall(r"[a-z0-9_]+", text.lower()))
+

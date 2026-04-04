@@ -9,62 +9,64 @@ def test_reset_cycles_tasks_in_order():
     second = env.reset()
     third = env.reset()
 
-    assert first.task.task_id == "py-review-easy"
-    assert second.task.task_id == "py-review-medium"
-    assert third.task.task_id == "py-review-hard"
+    assert first.task_id == "py-pr-review-easy"
+    assert second.task_id == "py-pr-review-medium"
+    assert third.task_id == "py-pr-review-hard"
 
 
-def test_partial_progress_reward_is_positive_for_new_match():
+def test_invalid_action_penalizes_without_corrupting_state():
     env = PythonEnvironment()
     env.reset()
 
-    action = PythonReviewAction(
-        operation="submit_findings",
-        findings=[
-            ReviewFinding(
-                title="Avoid eval on untrusted input",
-                line=2,
-                category="security",
-                severity="critical",
-                rationale="eval can execute attacker-controlled code.",
-                recommendation="Use json.loads instead.",
-            )
-        ],
-    )
-    observation = env.step(action)
+    observation = env.step(PythonReviewAction(operation="read_file"))
 
-    assert observation.reward > 0
-    assert observation.evaluation.matched_findings >= 1
+    assert observation.reward < 0
+    assert observation.last_action_status.startswith("Invalid action")
+    assert observation.metadata["submitted_finding_count"] == 0
     assert observation.done is False
 
 
-def test_finalize_perfect_easy_task_passes():
+def test_duplicate_finding_is_penalized_once_per_repeat():
     env = PythonEnvironment()
     env.reset()
+    finding = ReviewFinding(
+        file_path="src/notifications/retry.py",
+        line=7,
+        category="bug",
+        severity="warning",
+        title="Zero base_delay still divides",
+        explanation="A zero base_delay reaches the division and crashes.",
+        suggested_fix="Reject or handle zero before dividing.",
+    )
 
-    action = PythonReviewAction(
-        operation="finalize",
-        findings=[
-            ReviewFinding(
-                title="Avoid eval on untrusted configuration data",
-                line=2,
-                category="security",
-                severity="critical",
-                rationale="eval executes arbitrary code and is unsafe here.",
-                recommendation="Use json.loads or ast.literal_eval.",
-            ),
-            ReviewFinding(
-                title="Default count of zero causes a division by zero",
-                line=5,
+    first = env.step(PythonReviewAction(operation="add_finding", finding=finding))
+    second = env.step(PythonReviewAction(operation="add_finding", finding=finding))
+
+    assert first.reward > 0
+    assert second.reward < 0
+    assert second.metadata["duplicate_findings"] == 1
+
+
+def test_submit_review_ends_episode_with_bounded_score():
+    env = PythonEnvironment()
+    env.reset()
+    env.step(
+        PythonReviewAction(
+            operation="add_finding",
+            finding=ReviewFinding(
+                file_path="src/notifications/retry.py",
+                line=7,
                 category="bug",
                 severity="warning",
-                rationale="count defaults to zero and the division will crash.",
-                recommendation="Validate count before dividing.",
+                title="Zero base_delay still divides",
+                explanation="When base_delay is zero the division still executes.",
+                suggested_fix="Guard base_delay <= 0 before dividing.",
             ),
-        ],
+        )
     )
-    observation = env.step(action)
+
+    observation = env.step(PythonReviewAction(operation="submit_review"))
 
     assert observation.done is True
-    assert observation.score >= 0.8
-    assert observation.evaluation.passed is True
+    assert 0.0 <= observation.score <= 1.0
+    assert observation.last_action_status.startswith("Review submitted")

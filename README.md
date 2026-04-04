@@ -1,116 +1,147 @@
 ---
-title: Python Env Environment Server
+title: Python PR Review OpenEnv
 emoji: 🐍
 colorFrom: blue
 colorTo: green
 sdk: docker
 pinned: false
 app_port: 8000
-base_path: /web
 tags:
   - openenv
+  - code-review
 ---
 
-# Python Env
+# Python PR Review OpenEnv
 
-`python_env` is an OpenEnv benchmark for Python code review. The agent receives a realistic Python snippet and must identify correctness bugs, security flaws, operational risks, and obvious performance problems.
+`python_env` is a deterministic OpenEnv benchmark for real-world Python pull request review. The agent receives a realistic diff, can request full file context, records structured review findings, and submits a final review. The environment scores the review locally with deterministic rubric matchers instead of LLM graders.
 
-The environment includes three deterministic tasks with rubric-based graders:
+## Why this is useful
 
-1. `py-review-easy`
-2. `py-review-medium`
-3. `py-review-hard`
+The benchmark models a real workflow humans do every day:
 
-Each grader returns a score in the `0.0-1.0` range. The server also exposes a direct static-review API for arbitrary Python snippets.
+- inspect a partial diff
+- read additional files when the diff is not enough
+- decide which findings are real defects versus noise
+- submit a review with precise file and line references
+
+This makes it suitable for evaluating agentic code-review behavior, trajectory reward shaping, and precision under partial context.
+
+## Tasks
+
+The environment ships with exactly three bundled tasks:
+
+1. `py-pr-review-easy`: single-file regression in a retry helper
+2. `py-pr-review-medium`: multi-file billing change with a correctness bug and missing test coverage
+3. `py-pr-review-hard`: async job-runner change with subtle concurrency problems
+
+Each task has a deterministic hidden rubric with weights that sum to `1.0`. Scores are computed as:
+
+`matched_weight - false_positive_penalties - duplicate_penalties`
+
+The final score is clamped to `0.0-1.0`.
 
 ## Action Space
 
 `PythonReviewAction`
 
-- `operation`: `submit_findings`, `request_hint`, or `finalize`
-- `findings`: list of structured `ReviewFinding` objects
-- `patched_code`: optional improved code
-- `note`: optional reviewer note
+- `operation`: `read_file | add_finding | submit_review | finish`
+- `path`: repository-relative path for `read_file`
+- `finding`: structured `ReviewFinding` for `add_finding`
+
+`ReviewFinding`
+
+- `file_path`
+- `line`
+- `category`: `bug | security | performance | maintainability | testing`
+- `severity`: `critical | warning | info`
+- `title`
+- `explanation`
+- `suggested_fix`
 
 ## Observation Space
 
 `PythonReviewObservation`
 
-- `task`
-- `instructions`
-- `feedback`
-- `submitted_findings`
-- `hints_used`
+- `task_id`
+- `difficulty`
+- `goal`
+- `repo_summary`
+- `changed_files`
+- `visible_diff`
+- `available_files`
+- `review_history`
 - `attempts_remaining`
-- `evaluation`
+- `last_action_status`
 - `score`
-- `reward`
-- `done`
-- `metadata`
+- `reward_details`
+- OpenEnv base fields: `done`, `reward`, `metadata`
 
 ## Reward Design
 
-Rewards provide signal throughout the episode:
+The reward is shaped across the full trajectory:
 
-- positive reward for newly matched rubric findings
+- positive reward for opening new relevant files
+- positive reward equal to the matched rubric weight for a newly accepted finding
 - negative reward for false positives
 - negative reward for duplicate findings
-- negative reward for hint usage
-- small bonus for improved patches
-- final bonus for passing the task threshold
+- negative reward for repeated file reads and step inefficiency
+- terminal reward that includes the final normalized task score
+
+The scalar OpenEnv reward is exposed in `observation.reward`, while the structured breakdown is exposed in `observation.reward_details`.
 
 ## API
 
-OpenEnv-compatible:
+OpenEnv-compatible routes:
 
 - `POST /reset`
 - `POST /step`
 - `GET /state`
 - `GET /schema`
-- `WS /ws`
-
-Additional REST endpoints:
-
 - `GET /health`
+
+Additional helper routes:
+
+- `POST /state`
 - `GET /tasks`
 - `GET /tasks/{task_id}`
 - `POST /tasks/{task_id}/grade`
-- `POST /review`
-- `GET /history`
-- `DELETE /history`
-- `GET /config`
-- `PUT /config`
+- `GET /healthz`
 
-## Local Run
+## Local Development
+
+Install dependencies:
 
 ```bash
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+uv sync
 ```
 
-## Docker
+Run the server:
 
 ```bash
-docker build -t python_env-env:latest -f server/Dockerfile .
-docker run -p 8000:8000 python_env-env:latest
+uvicorn server.app:app --host 0.0.0.0 --port 8000
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+Validate OpenEnv metadata:
+
+```bash
+openenv validate
 ```
 
 ## Baseline Inference
 
-The root-level `inference.py` script runs an OpenAI-compatible model against all three tasks and prints per-task scores plus the mean score.
+The required root script is `inference.py`. It uses the OpenAI client only and reads:
 
-Required environment variables:
-
+- `OPENAI_API_KEY`
 - `API_BASE_URL`
 - `MODEL_NAME`
-- `HF_TOKEN` or `OPENAI_API_KEY`
-
-Optional:
-
-- `ENV_BASE_URL`
-- `PYTHON_ENV_IMAGE`
-- `MAX_TASKS`
-- `MAX_STEPS`
-- `INFERENCE_REPORT_PATH`
+- optional `HF_TOKEN`
+- optional `ENV_BASE_URL`
 
 Example:
 
@@ -122,30 +153,22 @@ $env:ENV_BASE_URL="http://127.0.0.1:8000"
 python inference.py
 ```
 
-## Validation
+The script runs all three tasks in fixed order, prints per-task progress, and writes `inference_results.json`.
+
+## Docker
+
+Build:
 
 ```bash
-docker build -f server/Dockerfile .
-openenv validate
-pytest
-python inference.py
+docker build -t python_env-env:latest .
 ```
 
-## Example Snippets
+Run:
 
-Reusable example inputs are in [examples/python_review_examples.py](./examples/python_review_examples.py).
-
-- `unsafe_eval`
-- `mutable_default`
-- `bare_except`
-- `shell_injection`
-- `syntax_error`
-- `clean_function`
-
-The matching checks live in [tests/test_examples.py](./tests/test_examples.py).
+```bash
+docker run -p 8000:8000 python_env-env:latest
+```
 
 ## Hugging Face Spaces
 
-```bash
-openenv push
-```
+This repository is configured for Docker Spaces. The root `Dockerfile` starts `uvicorn server.app:app` on `$PORT`, and `POST /reset` returns a valid observation for validator pings.

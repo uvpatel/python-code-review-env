@@ -1,13 +1,4 @@
-"""FastAPI app for the Python code-review environment.
-
-This module exposes two layers of API surface:
-
-- the OpenEnv-compatible routes created by `create_app(...)`
-- additional convenience routes for health, tasks, grading, and history
-
-The OpenEnv routes are what automated validators and agent clients care about.
-The extra REST routes are there to make manual testing and debugging easier.
-"""
+"""FastAPI application for the Python PR review OpenEnv."""
 
 from __future__ import annotations
 
@@ -16,105 +7,70 @@ import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 
-try:
-    from openenv.core.env_server.http_server import create_app
-except Exception as exc:  # pragma: no cover
-    raise ImportError(
-        "openenv is required for the server. Install project dependencies before running."
-    ) from exc
+from openenv.core.env_server.http_server import create_app
 
 try:
     from models import (
-        DeleteResponse,
-        DirectReviewRequest,
-        DirectReviewResponse,
-        EpisodeRecord,
         HealthResponse,
-        PythonEnvConfig,
         PythonReviewAction,
         PythonReviewObservation,
+        PythonReviewState,
         TaskDescriptor,
-        TaskEvaluation,
+        TaskGrade,
+        TaskSubmission,
+        TaskSummary,
     )
     from server.code_review_environment import PythonEnvironment
 except ModuleNotFoundError:  # pragma: no cover
     from ..models import (
-        DeleteResponse,
-        DirectReviewRequest,
-        DirectReviewResponse,
-        EpisodeRecord,
         HealthResponse,
-        PythonEnvConfig,
         PythonReviewAction,
         PythonReviewObservation,
+        PythonReviewState,
         TaskDescriptor,
-        TaskEvaluation,
+        TaskGrade,
+        TaskSubmission,
+        TaskSummary,
     )
     from .code_review_environment import PythonEnvironment
 
-# Read deployment-related settings from environment variables so local Docker,
-# HF Spaces, and larger deployments can all reuse the same application code.
-MAX_CONCURRENT_ENVS = int(os.getenv("MAX_CONCURRENT_ENVS", "32"))
 
-# The custom REST routes below use a singleton environment instance for simple
-# debugging and manual inspection.
+MAX_CONCURRENT_ENVS = int(os.getenv("MAX_CONCURRENT_ENVS", "16"))
+
 python_env = PythonEnvironment()
-
-# The installed OpenEnv server expects a class or factory function here rather
-# than a pre-instantiated environment object, so we pass `PythonEnvironment`.
 app = create_app(
     PythonEnvironment,
     PythonReviewAction,
     PythonReviewObservation,
     max_concurrent_envs=MAX_CONCURRENT_ENVS,
 )
-router = APIRouter(tags=["python-env"])
+router = APIRouter(tags=["python-pr-review"])
 
 
 @router.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
-    """Redirect the root path to the OpenAPI docs for easier manual testing."""
+    """Redirect the root page to generated API docs."""
 
     return RedirectResponse(url="/docs")
 
 
-@router.get("/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    """Return a lightweight health payload for local checks and deployments."""
+@router.get("/healthz", response_model=HealthResponse)
+def healthz() -> HealthResponse:
+    """Lightweight deployment health route."""
 
-    # Tasks are static, so this is a cheap way to confirm the app loaded the
-    # benchmark definition correctly.
-    tasks = python_env.list_tasks()
-    active_episode_id = None
-    active_task_id = tasks[0].task_id if tasks else None
-
-    # If the singleton environment has processed any requests, surface the most
-    # recent episode/task identifiers for easier debugging.
-    if python_env.get_history():
-        active = python_env.get_history()[-1]
-        active_episode_id = active.episode_id
-        active_task_id = active.task_id
-    return HealthResponse(
-        task_count=len(tasks),
-        active_task_id=active_task_id,
-        active_episode_id=active_episode_id,
-    )
+    return HealthResponse(task_count=len(python_env.list_task_summaries()))
 
 
-@router.get("/tasks", response_model=list[TaskDescriptor])
-def list_tasks() -> list[TaskDescriptor]:
-    """Return the public metadata for every benchmark task."""
+@router.get("/tasks", response_model=list[TaskSummary])
+def list_tasks() -> list[TaskSummary]:
+    """Return the three benchmark tasks in public form."""
 
-    return python_env.list_tasks()
+    return python_env.list_task_summaries()
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDescriptor)
 def get_task(task_id: str) -> TaskDescriptor:
-    """Return one task descriptor by id.
-
-    Args:
-        task_id: Stable task identifier such as ``py-review-easy``.
-    """
+    """Return one public task descriptor."""
 
     try:
         return python_env.get_task(task_id)
@@ -122,77 +78,34 @@ def get_task(task_id: str) -> TaskDescriptor:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/tasks/{task_id}/grade", response_model=TaskEvaluation)
-def grade_task(task_id: str, payload: PythonReviewAction) -> TaskEvaluation:
-    """Grade a proposed submission without stepping through an episode."""
+@router.post("/tasks/{task_id}/grade", response_model=TaskGrade)
+def grade_task(task_id: str, payload: TaskSubmission) -> TaskGrade:
+    """Expose the deterministic grader for offline checks."""
 
     try:
-        return python_env.grade_task_submission(
-            task_id=task_id,
-            findings=payload.findings,
-            patched_code=payload.patched_code,
-        )
+        return python_env.grade_task_submission(task_id=task_id, findings=payload.findings)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/review", response_model=DirectReviewResponse)
-def direct_review(request: DirectReviewRequest) -> DirectReviewResponse:
-    """Run the direct static-review helper on arbitrary Python code."""
+@router.post("/state", response_model=PythonReviewState)
+def post_state() -> PythonReviewState:
+    """Mirror the GET /state endpoint for clients that prefer POST."""
 
-    return python_env.direct_review(code=request.code, context=request.context)
-
-
-@router.get("/history", response_model=list[EpisodeRecord])
-def get_history() -> list[EpisodeRecord]:
-    """Return the singleton environment's stored episode summaries."""
-
-    return python_env.get_history()
+    return python_env.state
 
 
-@router.delete("/history", response_model=DeleteResponse)
-def clear_history() -> DeleteResponse:
-    """Clear the singleton environment's stored history."""
-
-    python_env.clear_history()
-    return DeleteResponse(detail="history cleared")
-
-
-@router.get("/config", response_model=PythonEnvConfig)
-def get_config() -> PythonEnvConfig:
-    """Expose the current configuration used by the singleton environment."""
-
-    return python_env.config
-
-
-@router.put("/config", response_model=PythonEnvConfig)
-def update_config(config: PythonEnvConfig) -> PythonEnvConfig:
-    """Replace the singleton environment config with a new config payload."""
-
-    python_env.update_config(config)
-    return python_env.config
-
-
-# Attach the custom routes after the OpenEnv application is created.
 app.include_router(router)
 
 
-def main(host: str = "localhost", port: int = 8000) -> None:
-    """Run the FastAPI app directly with uvicorn.
-
-    Args:
-        host: Interface to bind to.
-        port: TCP port to bind to.
-    """
+def main(host: str = "0.0.0.0", port: int = 8000) -> None:
+    """Run the FastAPI app with uvicorn."""
 
     import uvicorn
 
-    uvicorn.run(
-        app,
-        host=os.getenv("HOST", host),
-        port=int(os.getenv("PORT", str(port))),
-    )
+    uvicorn.run(app, host=os.getenv("HOST", host), port=int(os.getenv("PORT", str(port))))
 
 
 if __name__ == "__main__":
     main()
+

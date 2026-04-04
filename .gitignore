@@ -1,5 +1,9 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+__pycache__/__init.cpython-313.pyc
+__pycache__/client.cpython-313.pyc
+# Ignore changes to __pycache__
+__pycache__/
 *.py[codz]
 *$py.class
 

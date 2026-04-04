@@ -48,7 +48,7 @@ ENV MAX_CONCURRENT_ENVS=32
 
 # Health checks use the custom REST health route exposed by the app.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Run uvicorn from the project directory so relative imports resolve cleanly.
 # The container honors deployment-time environment variables for host, port,

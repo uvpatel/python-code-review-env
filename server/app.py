@@ -177,20 +177,43 @@ def update_config(config: PythonEnvConfig) -> PythonEnvConfig:
 app.include_router(router)
 
 
-def main(host: str = "localhost", port: int = 8000) -> None:
+def main() -> None:
     """Run the FastAPI app directly with uvicorn.
 
-    Args:
-        host: Interface to bind to.
-        port: TCP port to bind to.
+    This function parses command-line arguments and matches the names used
+    by uvicorn to keep the developer experience consistent.
     """
 
+    import argparse
     import uvicorn
+
+    parser = argparse.ArgumentParser(description="Run the OpenEnv server.")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=os.getenv("HOST", "localhost"),
+        help="Interface to bind to"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("PORT", "8000")),
+        help="TCP port to bind to"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=int(os.getenv("WORKERS", "1")),
+        help="Number of worker processes"
+    )
+
+    args = parser.parse_args()
 
     uvicorn.run(
         app,
-        host=os.getenv("HOST", host),
-        port=int(os.getenv("PORT", str(port))),
+        host=args.host,
+        port=args.port,
+        workers=args.workers,
     )
 
 

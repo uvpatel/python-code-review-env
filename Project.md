@@ -323,7 +323,7 @@ Use this when:
 Start the server:
 
 ```powershell
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+uv run server --port 8000
 ```
 
 Open the docs:
@@ -971,7 +971,7 @@ If you want the environment to become stronger quickly, do this next:
 Start server:
 
 ```powershell
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+uv run server --port 8000
 ```
 
 Open docs:

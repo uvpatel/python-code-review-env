@@ -83,8 +83,8 @@ Additional REST endpoints:
 
 ## Local Run
 
-```bash
-uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
+```powershell
+uv run server --port 8000
 ```
 
 ## Docker

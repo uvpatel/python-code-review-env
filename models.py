@@ -1,4 +1,16 @@
-"""Typed models for the Python code-review environment."""
+"""Typed models for the Python code-review environment.
+
+This module is the shared contract between:
+
+- the OpenEnv server implementation
+- the REST API layer
+- the benchmark grader
+- the inference script
+- the tests
+
+Keeping these models centralized makes the environment easier to validate,
+serialize, and evolve without each module inventing its own payload shape.
+"""
 
 from typing import List, Literal, Optional
 
@@ -6,14 +18,27 @@ from pydantic import BaseModel, Field
 from openenv.core.env_server.types import Action, Observation
 
 
+# Difficulty buckets are intentionally small and fixed so tasks can be
+# grouped for curriculum learning and reporting without extra normalization.
 Difficulty = Literal["easy", "medium", "hard"]
+
+# Severity is separate from category because one category such as "security"
+# can still vary in importance across tasks.
 Severity = Literal["critical", "warning", "info"]
+
+# Categories help both humans and agents understand what type of issue was found.
 Category = Literal["bug", "security", "style", "performance", "maintainability"]
+
+# Operations define the small action space an agent can use during an episode.
 Operation = Literal["submit_findings", "request_hint", "finalize"]
 
 
 class ReviewFinding(BaseModel):
-    """A structured finding produced by an agent or static reviewer."""
+    """A structured review finding.
+
+    Each finding is designed to be machine-gradable while still resembling the
+    sort of issue summary a human reviewer would write in a real code review.
+    """
 
     title: str = Field(..., description="Short title for the finding")
     line: Optional[int] = Field(default=None, description="1-based source line number")
@@ -33,7 +58,11 @@ class ReviewFinding(BaseModel):
 
 
 class TaskDescriptor(BaseModel):
-    """Public task metadata shown to the agent."""
+    """Public task metadata shown to the agent.
+
+    This is intentionally the "visible" task information. Hidden grading
+    details stay inside the server task bank so the benchmark remains useful.
+    """
 
     task_id: str = Field(..., description="Stable task identifier")
     difficulty: Difficulty = Field(..., description="Task difficulty bucket")
@@ -47,7 +76,11 @@ class TaskDescriptor(BaseModel):
 
 
 class TaskEvaluation(BaseModel):
-    """Deterministic grader output."""
+    """Deterministic grader output.
+
+    This model is returned in observations and offline grading routes so that
+    both online interaction and offline evaluation use exactly the same metrics.
+    """
 
     matched_reference_ids: List[str] = Field(default_factory=list)
     matched_findings: int = Field(default=0, ge=0)
@@ -61,7 +94,14 @@ class TaskEvaluation(BaseModel):
 
 
 class PythonReviewAction(Action):
-    """Action submitted by an agent during an episode."""
+    """Action submitted by an agent during an episode.
+
+    The action space is kept intentionally small:
+
+    - `submit_findings` for intermediate progress
+    - `request_hint` when the agent needs guidance at a small penalty
+    - `finalize` when the agent wants the episode to end
+    """
 
     operation: Operation = Field(
         default="submit_findings",
@@ -82,7 +122,11 @@ class PythonReviewAction(Action):
 
 
 class PythonEnvConfig(BaseModel):
-    """Environment-level configuration knobs."""
+    """Environment-level configuration knobs.
+
+    These values are useful for experimentation because they let you adjust
+    reward shaping and curriculum ordering without changing the grader logic.
+    """
 
     task_order: List[str] = Field(
         default_factory=lambda: ["py-review-easy", "py-review-medium", "py-review-hard"],
@@ -97,7 +141,15 @@ class PythonEnvConfig(BaseModel):
 
 
 class PythonReviewObservation(Observation):
-    """Observation returned by reset() and step()."""
+    """Observation returned by `reset()` and `step()`.
+
+    The observation combines:
+
+    - visible task context
+    - immediate feedback on the previous action
+    - cumulative evaluation state
+    - OpenEnv-standard reward/done/metadata fields
+    """
 
     task: TaskDescriptor = Field(..., description="Current task details")
     instructions: str = Field(
@@ -122,7 +174,11 @@ class PythonReviewObservation(Observation):
 
 
 class EpisodeRecord(BaseModel):
-    """Stored summary of a completed or in-progress episode."""
+    """Stored summary of a completed or in-progress episode.
+
+    This model is used by the custom history routes and is intentionally
+    compact enough to archive for later analysis or dataset creation.
+    """
 
     episode_id: str
     task_id: str
@@ -151,7 +207,11 @@ class DirectReviewRequest(BaseModel):
 
 
 class DirectReviewResponse(BaseModel):
-    """Static review result for arbitrary Python code."""
+    """Static review result for arbitrary Python code.
+
+    This route is useful for manual testing and dataset generation because it
+    lets you review arbitrary snippets without entering the benchmark loop.
+    """
 
     issues: List[ReviewFinding] = Field(default_factory=list)
     summary: str = Field(default="")
@@ -166,7 +226,11 @@ class DeleteResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Health payload used by Docker and Spaces checks."""
+    """Health payload used by Docker and Spaces checks.
+
+    This payload stays intentionally simple because health checks are often
+    consumed by infrastructure rather than by human users.
+    """
 
     status: Literal["ok"] = "ok"
     environment: str = "python_env"
@@ -175,6 +239,8 @@ class HealthResponse(BaseModel):
     active_episode_id: Optional[str] = None
 
 
+# Backward-compatible aliases keep older imports working while the project
+# standardizes on the `Python*` naming convention.
 CodeReviewAction = PythonReviewAction
 CodeReviewObservation = PythonReviewObservation
 CodeReviewConfig = PythonEnvConfig

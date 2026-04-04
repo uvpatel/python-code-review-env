@@ -1,4 +1,9 @@
-"""Deterministic graders for benchmark tasks."""
+"""Deterministic graders for benchmark tasks.
+
+This module turns free-form review findings into reproducible numeric scores.
+The logic is intentionally transparent so benchmark behavior can be inspected
+and adjusted without relying on opaque model-based judging.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,8 @@ except ModuleNotFoundError:  # pragma: no cover
     from .task_bank import ReferenceFinding, TaskSpec
 
 
+# Stopwords are removed before phrase-overlap comparisons so scoring focuses on
+# the meaningful technical parts of a finding rather than on filler words.
 STOPWORDS = {
     "a",
     "an",
@@ -38,6 +45,12 @@ STOPWORDS = {
 
 @dataclass
 class SubmissionGrade:
+    """Full grading result for one submission attempt.
+
+    The environment uses `evaluation` for the visible score while the
+    additional fields support incremental reward shaping.
+    """
+
     evaluation: TaskEvaluation
     newly_matched_ids: List[str]
     accepted_fingerprints: Set[str]
@@ -57,6 +70,20 @@ def evaluate_submission(
     false_positives: int = 0,
     duplicate_findings: int = 0,
 ) -> SubmissionGrade:
+    """Grade one batch of findings against a task rubric.
+
+    Args:
+        task: Benchmark task and hidden reference findings.
+        findings: Agent-submitted findings for this step.
+        patched_code: Optional code patch to score separately.
+        prior_matched_ids: Reference ids already matched in earlier steps.
+        prior_fingerprints: Finding fingerprints already seen in earlier steps.
+        force_patch_score: Optional override for patch score replay.
+        use_existing_matches: Skip new matching and recompute only from stored state.
+        false_positives: Existing false-positive count carried across steps.
+        duplicate_findings: Existing duplicate count carried across steps.
+    """
+
     matched_ids: Set[str] = set(prior_matched_ids or [])
     accepted_fingerprints: Set[str] = set()
     seen_fingerprints: Set[str] = set(prior_fingerprints or set())
@@ -66,6 +93,8 @@ def evaluate_submission(
 
     if not use_existing_matches:
         for finding in findings:
+            # Fingerprints are used to penalize repeated submissions of the
+            # same finding within one episode.
             fingerprint = _fingerprint(finding)
             if fingerprint in seen_fingerprints:
                 current_duplicates += 1
@@ -79,6 +108,7 @@ def evaluate_submission(
             matched_ids.add(reference.finding_id)
             new_matches.append(reference.finding_id)
 
+    # Patch scoring is optional because not every agent will propose an edit.
     patch_score = (
         force_patch_score
         if force_patch_score is not None
@@ -108,6 +138,8 @@ def _build_evaluation(
     duplicate_findings: int,
     patch_score: float,
 ) -> TaskEvaluation:
+    """Convert intermediate grading state into the public evaluation payload."""
+
     total_weight = sum(reference.weight for reference in task.reference_findings) or 1.0
     matched_weight = sum(
         reference.weight
@@ -115,6 +147,8 @@ def _build_evaluation(
         if reference.finding_id in matched_ids
     )
     weighted_recall = max(0.0, min(1.0, matched_weight / total_weight))
+    # False positives and duplicates lower the final score even when recall is
+    # strong, which encourages precision rather than keyword spam.
     penalty = min(0.35, false_positives * 0.08 + duplicate_findings * 0.03)
     score = max(0.0, min(1.0, weighted_recall - penalty))
     return TaskEvaluation(
@@ -135,6 +169,8 @@ def _match_finding(
     references: Sequence[ReferenceFinding],
     matched_ids: Set[str],
 ) -> Optional[ReferenceFinding]:
+    """Return the best rubric match for a submitted finding, if any."""
+
     best_reference: Optional[ReferenceFinding] = None
     best_score = 0.0
     for reference in references:
@@ -150,6 +186,8 @@ def _match_finding(
 
 
 def _reference_similarity(finding: ReviewFinding, reference: ReferenceFinding) -> float:
+    """Compute a similarity score between a submission and one rubric item."""
+
     score = 0.0
     if finding.category == reference.category:
         score += 0.3
@@ -169,6 +207,8 @@ def _reference_similarity(finding: ReviewFinding, reference: ReferenceFinding) -
             if part
         )
     )
+    # Phrase overlap lets the grader accept semantically similar titles and
+    # rationales without requiring exact string equality.
     reference_phrases = [reference.title, reference.rule_id, *reference.aliases]
     best_phrase_overlap = max(_phrase_overlap(text_tokens, phrase) for phrase in reference_phrases)
     score += best_phrase_overlap * 0.35
@@ -176,6 +216,8 @@ def _reference_similarity(finding: ReviewFinding, reference: ReferenceFinding) -
 
 
 def _grade_patch_score(task: TaskSpec, patched_code: Optional[str]) -> float:
+    """Estimate patch quality by checking whether detectable issues were removed."""
+
     if not patched_code:
         return 0.0
     issues = analyze_python_code(patched_code)
@@ -200,6 +242,8 @@ def _grade_patch_score(task: TaskSpec, patched_code: Optional[str]) -> float:
 
 
 def _phrase_overlap(tokens: Set[str], phrase: str) -> float:
+    """Measure token overlap between a finding and one reference phrase."""
+
     phrase_tokens = _tokens(phrase)
     if not phrase_tokens:
         return 0.0
@@ -210,6 +254,8 @@ def _phrase_overlap(tokens: Set[str], phrase: str) -> float:
 
 
 def _tokens(text: str) -> Set[str]:
+    """Normalize free text into lowercase comparison tokens."""
+
     return {
         token
         for token in re.findall(r"[a-z0-9_]+", text.lower())
@@ -218,6 +264,8 @@ def _tokens(text: str) -> Set[str]:
 
 
 def _fingerprint(finding: ReviewFinding) -> str:
+    """Build a stable fingerprint for duplicate-detection within one episode."""
+
     tokens = sorted(_tokens(f"{finding.title} {finding.rationale} {finding.recommendation or ''}"))
     return "|".join(
         [

@@ -1,4 +1,15 @@
-"""Benchmark task definitions for the Python code-review environment."""
+"""Benchmark task definitions for the Python code-review environment.
+
+The task bank is the canonical source of:
+
+- visible task prompts
+- hidden rubric findings
+- difficulty labels
+- hints
+- passing thresholds
+
+Expanding this file is the main path to making the benchmark richer.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +24,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
 @dataclass(frozen=True)
 class ReferenceFinding:
+    """One hidden rubric item used by the deterministic grader."""
+
     finding_id: str
     title: str
     category: Category
@@ -26,6 +39,11 @@ class ReferenceFinding:
 
 @dataclass(frozen=True)
 class TaskSpec:
+    """Complete benchmark task definition.
+
+    This includes both what the agent can see and what the grader keeps hidden.
+    """
+
     task_id: str
     difficulty: Difficulty
     title: str
@@ -37,9 +55,13 @@ class TaskSpec:
 
     @property
     def max_steps(self) -> int:
+        """Return the default per-task step budget used by the benchmark."""
+
         return 4
 
     def to_descriptor(self, max_steps: int) -> TaskDescriptor:
+        """Convert the internal task spec into the public descriptor."""
+
         return TaskDescriptor(
             task_id=self.task_id,
             difficulty=self.difficulty,
@@ -51,6 +73,9 @@ class TaskSpec:
         )
 
 
+# The initial benchmark set deliberately covers an easy/medium/hard progression
+# with different issue mixes so agents cannot solve the environment by learning
+# only one pattern.
 TASKS: List[TaskSpec] = [
     TaskSpec(
         task_id="py-review-easy",
@@ -257,14 +282,19 @@ TASKS: List[TaskSpec] = [
 ]
 
 
+# Index tasks by id for fast lookup in routes and environment resets.
 TASKS_BY_ID: Dict[str, TaskSpec] = {task.task_id: task for task in TASKS}
 
 
 def get_task_descriptors(max_steps: int) -> List[TaskDescriptor]:
+    """Return public descriptors for all tasks in benchmark order."""
+
     return [task.to_descriptor(max_steps) for task in TASKS]
 
 
 def get_task_by_id(task_id: str) -> TaskSpec:
+    """Look up one task by id and raise a clear error when missing."""
+
     try:
         return TASKS_BY_ID[task_id]
     except KeyError as exc:  # pragma: no cover

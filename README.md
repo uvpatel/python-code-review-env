@@ -108,6 +108,19 @@ Optional:
 
 - `ENV_BASE_URL`
 - `PYTHON_ENV_IMAGE`
+- `MAX_TASKS`
+- `MAX_STEPS`
+- `INFERENCE_REPORT_PATH`
+
+Example:
+
+```bash
+$env:API_BASE_URL="https://api.openai.com/v1"
+$env:MODEL_NAME="gpt-4.1-mini"
+$env:OPENAI_API_KEY="..."
+$env:ENV_BASE_URL="http://127.0.0.1:8000"
+python inference.py
+```
 
 ## Validation
 
@@ -117,6 +130,19 @@ openenv validate
 pytest
 python inference.py
 ```
+
+## Example Snippets
+
+Reusable example inputs are in [examples/python_review_examples.py](./examples/python_review_examples.py).
+
+- `unsafe_eval`
+- `mutable_default`
+- `bare_except`
+- `shell_injection`
+- `syntax_error`
+- `clean_function`
+
+The matching checks live in [tests/test_examples.py](./tests/test_examples.py).
 
 ## Hugging Face Spaces
 

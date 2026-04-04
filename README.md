@@ -1,6 +1,5 @@
 ---
 title: Python PR Review OpenEnv
-emoji: 🐍
 colorFrom: blue
 colorTo: green
 sdk: docker

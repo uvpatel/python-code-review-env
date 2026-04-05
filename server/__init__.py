@@ -1,5 +1,5 @@
-"""Server exports for the Python PR review environment."""
+"""Server exports for the Python code review environment."""
 
-from .code_review_environment import CodeReviewEnvironment, PythonEnvironment
+from .code_review_environment import CodeReviewEnvironment, PythonCodeReviewEnvironment, PythonEnvironment
 
-__all__ = ["PythonEnvironment", "CodeReviewEnvironment"]
+__all__ = ["PythonEnvironment", "PythonCodeReviewEnvironment", "CodeReviewEnvironment"]

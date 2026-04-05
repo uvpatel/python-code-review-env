@@ -1,4 +1,4 @@
-"""FastAPI application for the Python PR review OpenEnv."""
+"""FastAPI application for the Python code review environment."""
 
 from __future__ import annotations
 
@@ -9,42 +9,27 @@ from fastapi.responses import RedirectResponse
 
 from openenv.core.env_server.http_server import create_app
 
-try:
-    from models import (
-        HealthResponse,
-        PythonReviewAction,
-        PythonReviewObservation,
-        PythonReviewState,
-        TaskDescriptor,
-        TaskGrade,
-        TaskSubmission,
-        TaskSummary,
-    )
-    from server.code_review_environment import PythonEnvironment
-except ModuleNotFoundError:  # pragma: no cover
-    from ..models import (
-        HealthResponse,
-        PythonReviewAction,
-        PythonReviewObservation,
-        PythonReviewState,
-        TaskDescriptor,
-        TaskGrade,
-        TaskSubmission,
-        TaskSummary,
-    )
-    from .code_review_environment import PythonEnvironment
+from models import (
+    HealthResponse,
+    PythonCodeReviewAction,
+    PythonCodeReviewObservation,
+    PythonCodeReviewState,
+    TaskDescriptor,
+    TaskGrade,
+)
+from server.env import PythonCodeReviewEnvironment
 
 
 MAX_CONCURRENT_ENVS = int(os.getenv("MAX_CONCURRENT_ENVS", "16"))
 
-python_env = PythonEnvironment()
+python_env = PythonCodeReviewEnvironment()
 app = create_app(
-    PythonEnvironment,
-    PythonReviewAction,
-    PythonReviewObservation,
+    PythonCodeReviewEnvironment,
+    PythonCodeReviewAction,
+    PythonCodeReviewObservation,
     max_concurrent_envs=MAX_CONCURRENT_ENVS,
 )
-router = APIRouter(tags=["python-pr-review"])
+router = APIRouter(tags=["python-code-review"])
 
 
 @router.get("/", include_in_schema=False)
@@ -54,23 +39,23 @@ def root() -> RedirectResponse:
     return RedirectResponse(url="/docs")
 
 
-@router.get("/healthz", response_model=HealthResponse)
-def healthz() -> HealthResponse:
-    """Lightweight deployment health route."""
+@router.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    """Health check route for Docker and Spaces."""
 
-    return HealthResponse(task_count=len(python_env.list_task_summaries()))
+    return python_env.health()
 
 
-@router.get("/tasks", response_model=list[TaskSummary])
-def list_tasks() -> list[TaskSummary]:
-    """Return the three benchmark tasks in public form."""
+@router.get("/tasks", response_model=list[TaskDescriptor])
+def list_tasks() -> list[TaskDescriptor]:
+    """List the bundled deterministic tasks."""
 
     return python_env.list_task_summaries()
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDescriptor)
 def get_task(task_id: str) -> TaskDescriptor:
-    """Return one public task descriptor."""
+    """Return one task descriptor."""
 
     try:
         return python_env.get_task(task_id)
@@ -79,20 +64,22 @@ def get_task(task_id: str) -> TaskDescriptor:
 
 
 @router.post("/tasks/{task_id}/grade", response_model=TaskGrade)
-def grade_task(task_id: str, payload: TaskSubmission) -> TaskGrade:
-    """Expose the deterministic grader for offline checks."""
+def grade_task(task_id: str, payload: PythonCodeReviewAction) -> TaskGrade:
+    """Grade arbitrary candidate code outside a live episode."""
 
+    if payload.action_type != "edit_code" or not payload.code:
+        raise HTTPException(status_code=400, detail="Send action_type=edit_code with code.")
     try:
-        return python_env.grade_task_submission(task_id=task_id, findings=payload.findings)
+        return python_env.grade_task_submission(task_id=task_id, code=payload.code)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/state", response_model=PythonReviewState)
-def post_state() -> PythonReviewState:
-    """Mirror the GET /state endpoint for clients that prefer POST."""
+@router.post("/state", response_model=PythonCodeReviewState)
+def post_state() -> RedirectResponse:
+    """Preserve POST compatibility for clients that do not issue GET /state."""
 
-    return python_env.state
+    return RedirectResponse(url="/state", status_code=303)
 
 
 app.include_router(router)
@@ -108,4 +95,3 @@ def main(host: str = "0.0.0.0", port: int = 8000) -> None:
 
 if __name__ == "__main__":
     main()
-

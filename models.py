@@ -44,10 +44,10 @@ class PythonReviewReward(BaseModel):
         default=0.0, description="Penalty applied to unsupported findings"
     )
     efficiency_penalty: float = Field(
-        default=0.0, description="Penalty applied to wasteful repeated actions"
+        default=-0.3, description="Penalty applied to wasteful repeated actions"
     )
     invalid_action_penalty: float = Field(
-        default=0.0, description="Penalty applied to invalid actions"
+        default=-0.5, description="Penalty applied to invalid actions"
     )
     reason: str = Field(default="", description="Short explanation of the reward outcome")
 
@@ -152,4 +152,3 @@ def reward_metadata(reward: PythonReviewReward) -> Dict[str, Any]:
     """Serialize reward details for OpenEnv metadata payloads."""
 
     return reward.model_dump()
-

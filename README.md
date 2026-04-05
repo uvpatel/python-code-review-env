@@ -1,5 +1,5 @@
 ---
-title: Python PR Review OpenEnv
+title: Python Code Review OpenEnv
 colorFrom: blue
 colorTo: green
 sdk: docker
@@ -8,166 +8,194 @@ app_port: 8000
 tags:
   - openenv
   - code-review
+  - python
 ---
 
-# Python PR Review OpenEnv
+# Python Code Review OpenEnv
 
-`python_env` is a deterministic OpenEnv benchmark for real-world Python pull request review. The agent receives a realistic diff, can request full file context, records structured review findings, and submits a final review. The environment scores the review locally with deterministic rubric matchers instead of LLM graders.
+`python_code_review_env` is a production-grade OpenEnv environment for evaluating agents on realistic Python code review and repair tasks. The agent receives broken or inefficient Python code, performs structured actions, runs deterministic checks, and submits a final solution scored from `0.0` to `1.0`.
 
-## Why this is useful
+## What It Simulates
 
-The benchmark models a real workflow humans do every day:
+The environment models a real developer workflow:
 
-- inspect a partial diff
-- read additional files when the diff is not enough
-- decide which findings are real defects versus noise
-- submit a review with precise file and line references
+- inspect and analyze code
+- edit the full file
+- run tests or compilation checks
+- submit a final revision for deterministic grading
 
-This makes it suitable for evaluating agentic code-review behavior, trajectory reward shaping, and precision under partial context.
+Bundled tasks:
 
-## Tasks
+1. `syntax-fix-easy`: repair syntax errors in a utility function
+2. `bug-fix-medium`: fix logic with visible and hidden pytest coverage
+3. `optimization-hard`: preserve correctness while improving runtime and code quality
 
-The environment ships with exactly three bundled tasks:
+## Action Schema
 
-1. `py-pr-review-easy`: single-file regression in a retry helper
-2. `py-pr-review-medium`: multi-file billing change with a correctness bug and missing test coverage
-3. `py-pr-review-hard`: async job-runner change with subtle concurrency problems
+```json
+{
+  "action_type": "analyze_code",
+  "code": "",
+  "notes": ""
+}
+```
 
-Each task has a deterministic hidden rubric with weights that sum to `1.0`. Scores are computed as:
+Supported `action_type` values:
 
-`matched_weight - false_positive_penalties - duplicate_penalties`
+- `analyze_code`
+- `edit_code`
+- `run_tests`
+- `submit_solution`
 
-The final score is clamped to `0.0-1.0`.
+For `edit_code`, `code` must contain the entire updated Python source.
 
-## Action Space
+## Observation Schema
 
-`PythonReviewAction`
+```json
+{
+  "task_description": "...",
+  "current_code": "...",
+  "errors": "...",
+  "test_results": "...",
+  "history": []
+}
+```
 
-- `operation`: `read_file | add_finding | submit_review | finish`
-- `path`: repository-relative path for `read_file`
-- `finding`: structured `ReviewFinding` for `add_finding`
-
-`ReviewFinding`
-
-- `file_path`
-- `line`
-- `category`: `bug | security | performance | maintainability | testing`
-- `severity`: `critical | warning | info`
-- `title`
-- `explanation`
-- `suggested_fix`
-
-## Observation Space
-
-`PythonReviewObservation`
-
-- `task_id`
-- `difficulty`
-- `goal`
-- `repo_summary`
-- `changed_files`
-- `visible_diff`
-- `available_files`
-- `review_history`
-- `attempts_remaining`
-- `last_action_status`
-- `score`
-- `reward_details`
-- OpenEnv base fields: `done`, `reward`, `metadata`
+The full observation also includes `task_id`, `difficulty`, `task_kind`, `attempts_remaining`, `last_action_status`, `score`, and structured `reward_details`.
 
 ## Reward Design
 
-The reward is shaped across the full trajectory:
+Reward shaping is deterministic and non-binary:
 
-- positive reward for opening new relevant files
-- positive reward equal to the matched rubric weight for a newly accepted finding
-- negative reward for false positives
-- negative reward for duplicate findings
-- negative reward for repeated file reads and step inefficiency
-- terminal reward that includes the final normalized task score
+- `+0.2` when syntax becomes valid
+- `+0.3 * delta(test pass fraction)` for new test progress
+- `+0.5` once for full correctness on final grading
+- `-0.1` for invalid actions
+- `-0.2` when pytest or benchmark execution times out
+- quality bonus from AST-based maintainability improvements
 
-The scalar OpenEnv reward is exposed in `observation.reward`, while the structured breakdown is exposed in `observation.reward_details`.
+The final task score is always clamped into `0.0..1.0`.
 
-## API
+## Deterministic Graders
 
-OpenEnv-compatible routes:
+The environment uses only reproducible local grading:
 
-- `POST /reset`
-- `POST /step`
-- `GET /state`
-- `GET /schema`
-- `GET /health`
+- `ast.parse` and `compile` for syntax validation
+- `pytest` execution in temp sandboxes for bug-fix and correctness checks
+- runtime benchmarking against a fixed workload for optimization tasks
+- string-diff scoring for partial syntax-fix credit
+- AST structure and PEP8-inspired style scoring for refactor quality
 
-Additional helper routes:
+## Project Layout
 
-- `POST /state`
-- `GET /tasks`
-- `GET /tasks/{task_id}`
-- `POST /tasks/{task_id}/grade`
-- `GET /healthz`
+```text
+python_code_review_env/
+├── envs/
+│   └── python_env_env/
+│       ├── server/
+│       │   ├── app.py
+│       │   ├── env.py
+│       │   └── Dockerfile
+│       ├── tasks/
+│       ├── graders/
+│       └── openenv.yaml
+├── graders/
+├── server/
+├── tasks/
+├── inference.py
+├── README.md
+└── openenv.yaml
+```
 
-## Local Development
+The root modules are the live implementation. The `envs/python_env_env` tree mirrors the same entrypoints for the requested benchmark layout.
+
+## Local Run
 
 Install dependencies:
 
 ```bash
-uv sync
+uv sync --extra dev
 ```
 
-Run the server:
+Start the API:
 
 ```bash
 uvicorn server.app:app --host 0.0.0.0 --port 8000
 ```
 
-Run tests:
-
-```bash
-pytest
-```
-
-Validate OpenEnv metadata:
+Validate metadata:
 
 ```bash
 openenv validate
 ```
 
+Run tests:
+
+```bash
+pytest -q
+```
+
+## Docker
+
+Build from the repo root:
+
+```bash
+docker build -t python_code_review_env:latest .
+```
+
+Run locally:
+
+```bash
+docker run -p 8000:8000 python_code_review_env:latest
+```
+
+Health checks:
+
+- `GET /health`
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+
+## Hugging Face Spaces
+
+1. Create a Docker Space.
+2. Push this repository as the Space content.
+3. Ensure the Space exposes port `8000`.
+4. Verify the deployment with `POST /reset`.
+
+The container is CPU-friendly and benchmarks a small fixed workload suitable for `2 vCPU / 8 GB RAM`.
+
 ## Baseline Inference
 
-The required root script is `inference.py`. It uses the OpenAI client only and reads:
+The root `inference.py` uses the OpenAI client with a configurable base URL:
 
-- `OPENAI_API_KEY`
-- `API_BASE_URL`
-- `MODEL_NAME`
-- optional `HF_TOKEN`
-- optional `ENV_BASE_URL`
+```python
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+```
+
+Supported providers are any OpenAI-compatible endpoints, including:
+
+- Gemini compatibility layers
+- OpenRouter
+- Together AI
+- DeepSeek
+- local compatible gateways
 
 Example:
 
 ```bash
-$env:API_BASE_URL="https://api.openai.com/v1"
-$env:MODEL_NAME="gpt-4.1-mini"
-$env:OPENAI_API_KEY="..."
+$env:API_BASE_URL="https://openrouter.ai/api/v1"
+$env:API_KEY="..."
+$env:MODEL_NAME="deepseek/deepseek-chat-v3-0324:free"
 $env:ENV_BASE_URL="http://127.0.0.1:8000"
 python inference.py
 ```
 
-The script runs all three tasks in fixed order, prints per-task progress, and writes `inference_results.json`.
+Expected output shape:
 
-## Docker
-
-Build:
-
-```bash
-docker build -t python_env-env:latest .
+```text
+Task 1 Score: 0.8
+Task 2 Score: 0.6
+Task 3 Score: 0.4
+Final Score: 0.6
 ```
-
-Run:
-
-```bash
-docker run -p 8000:8000 python_env-env:latest
-```
-
-## Hugging Face Spaces
-
-This repository is configured for Docker Spaces. The root `Dockerfile` starts `uvicorn server.app:app` on `$PORT`, and `POST /reset` returns a valid observation for validator pings.

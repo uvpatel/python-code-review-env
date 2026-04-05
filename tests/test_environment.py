@@ -1,72 +1,81 @@
-from models import PythonReviewAction, ReviewFinding
-from server.code_review_environment import PythonEnvironment
+from models import PythonCodeReviewAction
+from server.env import PythonCodeReviewEnvironment
 
 
 def test_reset_cycles_tasks_in_order():
-    env = PythonEnvironment()
+    env = PythonCodeReviewEnvironment()
 
     first = env.reset()
     second = env.reset()
     third = env.reset()
 
-    assert first.task_id == "py-pr-review-easy"
-    assert second.task_id == "py-pr-review-medium"
-    assert third.task_id == "py-pr-review-hard"
+    assert first.task_id == "syntax-fix-easy"
+    assert second.task_id == "bug-fix-medium"
+    assert third.task_id == "optimization-hard"
 
 
-def test_invalid_action_penalizes_without_corrupting_state():
-    env = PythonEnvironment()
-    env.reset()
+def test_invalid_edit_code_penalizes_action():
+    env = PythonCodeReviewEnvironment()
+    env.reset(task_id="syntax-fix-easy")
 
-    observation = env.step(PythonReviewAction(operation="read_file"))
+    observation = env.step(PythonCodeReviewAction(action_type="edit_code", code=""))
 
     assert observation.reward < 0
-    assert observation.last_action_status.startswith("Invalid action")
-    assert observation.metadata["submitted_finding_count"] == 0
-    assert observation.done is False
+    assert observation.reward_details.invalid_action_penalty == 0.1
+    assert "requires code" in observation.last_action_status
 
 
-def test_duplicate_finding_is_penalized_once_per_repeat():
-    env = PythonEnvironment()
-    env.reset()
-    finding = ReviewFinding(
-        file_path="src/notifications/retry.py",
-        line=7,
-        category="bug",
-        severity="warning",
-        title="Zero base_delay still divides",
-        explanation="A zero base_delay reaches the division and crashes.",
-        suggested_fix="Reject or handle zero before dividing.",
-    )
+def test_easy_task_gets_full_score_after_fix():
+    env = PythonCodeReviewEnvironment()
+    env.reset(task_id="syntax-fix-easy")
 
-    first = env.step(PythonReviewAction(operation="add_finding", finding=finding))
-    second = env.step(PythonReviewAction(operation="add_finding", finding=finding))
-
-    assert first.reward > 0
-    assert second.reward < 0
-    assert second.metadata["duplicate_findings"] == 1
-
-
-def test_submit_review_ends_episode_with_bounded_score():
-    env = PythonEnvironment()
-    env.reset()
     env.step(
-        PythonReviewAction(
-            operation="add_finding",
-            finding=ReviewFinding(
-                file_path="src/notifications/retry.py",
-                line=7,
-                category="bug",
-                severity="warning",
-                title="Zero base_delay still divides",
-                explanation="When base_delay is zero the division still executes.",
-                suggested_fix="Guard base_delay <= 0 before dividing.",
-            ),
+        PythonCodeReviewAction(
+            action_type="edit_code",
+            code="""def normalize_username(raw_name: str) -> str:
+    cleaned = raw_name.strip().lower()
+    if not cleaned:
+        return "anonymous"
+    return cleaned.replace(" ", "_")
+""",
         )
     )
-
-    observation = env.step(PythonReviewAction(operation="submit_review"))
+    observation = env.step(PythonCodeReviewAction(action_type="submit_solution"))
 
     assert observation.done is True
-    assert 0.0 <= observation.score <= 1.0
-    assert observation.last_action_status.startswith("Review submitted")
+    assert observation.score == 1.0
+
+
+def test_medium_task_reports_partial_visible_progress():
+    env = PythonCodeReviewEnvironment()
+    env.reset(task_id="bug-fix-medium")
+
+    observation = env.step(PythonCodeReviewAction(action_type="run_tests"))
+
+    assert observation.score < 1.0
+    assert "visible checks" in observation.test_results
+
+
+def test_hard_task_reference_solution_scores_high():
+    env = PythonCodeReviewEnvironment()
+    env.reset(task_id="optimization-hard")
+
+    env.step(
+        PythonCodeReviewAction(
+            action_type="edit_code",
+            code="""from collections import Counter
+from typing import Iterable
+
+
+def summarize_user_activity(events: Iterable[dict]) -> list[tuple[str, int]]:
+    \"\"\"Aggregate user activity counts in one pass.\"\"\"
+
+    counts = Counter(event["user_id"] for event in events)
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+""",
+        )
+    )
+    observation = env.step(PythonCodeReviewAction(action_type="submit_solution"))
+
+    assert observation.done is True
+    assert observation.score >= 0.9

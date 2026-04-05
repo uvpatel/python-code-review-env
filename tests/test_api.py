@@ -10,31 +10,22 @@ def test_health_endpoint():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert "status" in response.json()
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["environment"] == "python_code_review_env"
 
 
-def test_reset_returns_openenv_observation():
-    response = client.post("/reset", json={})
+def test_reset_returns_expected_observation():
+    response = client.post("/reset", json={"task_id": "syntax-fix-easy"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["observation"]["task_id"] == "py-pr-review-easy"
-    assert "visible_diff" in payload["observation"]
+    assert payload["observation"]["task_id"] == "syntax-fix-easy"
+    assert "current_code" in payload["observation"]
 
 
 def test_tasks_endpoint_lists_three_tasks():
     response = client.get("/tasks")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert len(payload) == 3
-
-
-def test_post_state_returns_current_state():
-    client.post("/reset", json={})
-    response = client.post("/state")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["task_id"] == "py-pr-review-easy"
-    assert payload["step_count"] == 0
+    assert len(response.json()) == 3
